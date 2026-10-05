@@ -24,3 +24,20 @@ export function register(data) {
 export function getUserInfo() {
   return request.get('/user/info')
 }
+
+/**
+ * 根据 ID 查询用户完整信息（密码已脱敏）
+ * @param {number|string} id
+ */
+export function getUserById(id) {
+  return request.get(`/user/${id}`)
+}
+
+/**
+ * 修改个人资料（昵称、邮箱、头像、性别）
+ * 用户 ID 由网关注入，无需也无法在 body 指定
+ * @param {{ nickname?: string, email?: string, avatar?: string, gender?: number }} data
+ */
+export function updateProfile(data) {
+  return request.put('/user/update', data)
+}

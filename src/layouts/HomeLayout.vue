@@ -1,13 +1,20 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useCartStore } from '@/stores/cart'
 
 const auth = useAuthStore()
+const cart = useCartStore()
 const router = useRouter()
 
 function handleLogout() {
   auth.logout()
+  cart.reset()
   router.push('/login')
+}
+
+function goCenter() {
+  if (auth.centerPath) router.push(auth.centerPath)
 }
 </script>
 
@@ -15,14 +22,22 @@ function handleLogout() {
   <div class="page">
     <header class="page-header">
       <div class="container header-inner">
-        <router-link :to="auth.homePath" class="header-brand">
+        <router-link :to="auth.homePath" class="header-brand" title="返回首页">
           <span class="latin brand-en">SUWU</span>
           <span class="brand-cn">素物</span>
         </router-link>
 
         <div class="header-right">
-          <span class="role-tag">{{ auth.roleLabel }}中心</span>
-          <span class="header-divider"></span>
+          <button
+            v-if="auth.centerPath"
+            class="role-tag"
+            type="button"
+            title="进入个人中心"
+            @click="goCenter"
+          >
+            {{ auth.roleLabel }}中心
+          </button>
+          <span v-if="auth.centerPath" class="header-divider"></span>
           <span class="header-user">{{ auth.username || '尊贵的客人' }}</span>
           <button class="logout-btn" type="button" @click="handleLogout">
             退出登录
@@ -100,6 +115,16 @@ function handleLogout() {
   color: var(--color-accent-deep);
   background: var(--color-pink-soft);
   border-radius: var(--radius-pill);
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.role-tag:hover {
+  background: var(--color-pink);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(232, 180, 184, 0.45);
 }
 
 .header-divider {

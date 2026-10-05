@@ -1,9 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const router = useRouter()
 const toast = ref('')
 
 const heroUrl = computed(() => {
@@ -15,10 +17,9 @@ const heroUrl = computed(() => {
 })
 
 const entries = [
-  { icon: '❋', title: '浏览好物', desc: '文艺美物 · 匠心甄选' },
-  { icon: '◈', title: '购物车', desc: '查看已加入的心意' },
-  { icon: '✦', title: '我的订单', desc: '跟踪订单与物流' },
-  { icon: '✿', title: '收货地址', desc: '管理常用地址' },
+  { icon: '✦', title: '用户中心', desc: '个人资料 · 收货地址', to: '/user/center' },
+  { icon: '❋', title: '浏览好物', desc: '文艺美物 · 匠心甄选', to: '/shop' },
+  { icon: '❒', title: '我的订单', desc: '跟踪订单与物流', to: '/my-orders' },
 ]
 
 const collections = [
@@ -29,12 +30,24 @@ const collections = [
 ]
 
 let toastTimer = null
-function comingSoon() {
-  toast.value = '功能即将上线，敬请期待'
+function showToast(msg) {
+  toast.value = msg
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => {
     toast.value = ''
   }, 3000)
+}
+
+function comingSoon() {
+  showToast('功能即将上线，敬请期待')
+}
+
+function handleEntry(item) {
+  if (item.to) {
+    router.push(item.to)
+  } else {
+    comingSoon()
+  }
 }
 </script>
 
@@ -54,7 +67,7 @@ function comingSoon() {
               愿你在寻常日子里，<br />
               与美好器物温柔相遇
             </p>
-            <button class="btn btn-primary" type="button" @click="comingSoon">
+            <button class="btn btn-primary" type="button" @click="router.push('/shop')">
               开始逛逛
             </button>
           </div>
@@ -71,11 +84,12 @@ function comingSoon() {
         </div>
         <div class="entry-grid">
           <button
-            v-for="item in entries"
+            v-for="(item, idx) in entries"
             :key="item.title"
             class="entry-card card"
+            :class="{ 'entry-feature': idx === 0 }"
             type="button"
-            @click="comingSoon"
+            @click="handleEntry(item)"
           >
             <span class="entry-icon">{{ item.icon }}</span>
             <span class="entry-title serif">{{ item.title }}</span>
@@ -196,7 +210,7 @@ function comingSoon() {
 /* ---------------- 快捷入口 ---------------- */
 .entry-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
   gap: 22px;
 }
 
@@ -214,6 +228,20 @@ function comingSoon() {
 .entry-card:hover {
   transform: translateY(-5px);
   box-shadow: var(--shadow-md);
+}
+
+/* 用户中心卡片强调 */
+.entry-feature {
+  background: linear-gradient(160deg, var(--color-primary-soft), var(--color-bg-card));
+  border-color: var(--color-primary);
+}
+
+.entry-feature .entry-icon {
+  font-size: 30px;
+}
+
+.entry-feature .entry-title {
+  color: var(--color-accent-deep);
 }
 
 .entry-icon {

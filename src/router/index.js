@@ -29,6 +29,41 @@ const router = createRouter({
       component: () => import('@/views/user/UserHome.vue'),
       meta: { requiresAuth: true, role: 'USER' },
     },
+    // 用户中心：基本资料 + 收货地址
+    {
+      path: '/user/center',
+      name: 'user-center',
+      component: () => import('@/views/user/UserCenter.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
+    // 商品购物页：商品列表 + 悬浮购物车
+    {
+      path: '/shop',
+      name: 'user-shop',
+      component: () => import('@/views/user/ProductShop.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
+    // 订单确认页：地址、清单、备注、提交并跳转沙箱支付
+    {
+      path: '/checkout',
+      name: 'user-checkout',
+      component: () => import('@/views/user/Checkout.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
+    // 支付结果页：支付宝沙箱同步回跳地址
+    {
+      path: '/pay/result',
+      name: 'pay-result',
+      component: () => import('@/views/user/PayResult.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
+    // 我的订单：支付记录 + 发货物流跟踪
+    {
+      path: '/my-orders',
+      name: 'my-orders',
+      component: () => import('@/views/user/MyOrders.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
     // 管理员首页
     {
       path: '/admin/home',

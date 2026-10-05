@@ -2,25 +2,20 @@
 import { reactive, ref } from 'vue'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
-import { getMerchantByUserId } from '@/api/merchant'
-import { pageMerchantOrders } from '@/api/order'
+import { pageUserOrders, alipayPayForm, getLogistics, receiveOrder } from '@/api/order'
 
 const auth = useAuthStore()
-const toast = ref('')
+const toastMsg = ref('')
 
-// ---------- 店铺与支付记录 ----------
-const merchantId = ref(null)
-const shopName = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
 const orders = ref([])
 const activeStatus = ref(null)
-
 const page = reactive({ pageNum: 1, pageSize: 5, total: 0, pages: 0 })
 
-// 经营概览（真实数据）
-const totalOrders = ref('—')
-const toShipCount = ref('—')
+const logisticsMap = ref({}) // orderNo -> Logistics
+const receivingId = ref(null)
+const payingId = ref(null)
 
 const tabs = [
   { label: '全部订单', value: null },
@@ -29,6 +24,7 @@ const tabs = [
   { label: '待收货', value: 2 },
   { label: '已完成', value: 3 },
   { label: '已取消', value: 4 },
+  { label: '已退款', value: 5 },
 ]
 
 const STATUS_TEXT = {
@@ -41,6 +37,8 @@ const STATUS_TEXT = {
 }
 
 const PAY_TEXT = { 1: '微信支付', 2: '支付宝', 3: '余额支付' }
+
+const LOGISTICS_TEXT = { 0: '待发货', 1: '运输中', 2: '已签收' }
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -56,12 +54,25 @@ function fmtTime(t) {
   return String(t).replace('T', ' ').slice(0, 16)
 }
 
+/* 已发货的订单（待收货/已完成）查询物流信息 */
+async function loadLogistics(list) {
+  const shipped = list.filter((o) => o.status === 2 || o.status === 3)
+  await Promise.all(
+    shipped.map(async (o) => {
+      try {
+        logisticsMap.value[o.orderNo] = await getLogistics(o.orderNo)
+      } catch {
+        /* 无物流记录时静默忽略 */
+      }
+    }),
+  )
+}
+
 async function loadOrders() {
-  if (!merchantId.value) return
   loading.value = true
   errorMsg.value = ''
   try {
-    const data = await pageMerchantOrders(merchantId.value, {
+    const data = await pageUserOrders(auth.userId, {
       status: activeStatus.value,
       pageNum: page.pageNum,
       pageSize: page.pageSize,
@@ -69,8 +80,9 @@ async function loadOrders() {
     orders.value = data.list || []
     page.total = data.total
     page.pages = data.pages
+    await loadLogistics(orders.value)
   } catch (e) {
-    errorMsg.value = e.message || '订单加载失败'
+    errorMsg.value = e?.message || '订单加载失败'
   } finally {
     loading.value = false
   }
@@ -89,95 +101,73 @@ function goPage(target) {
   loadOrders()
 }
 
-// ---------- 页面初始化：userId 换 merchantId ----------
-;(async () => {
+/* 待付款订单：唤起支付宝沙箱收银台 */
+async function payNow(order) {
+  payingId.value = order.id
   try {
-    const m = await getMerchantByUserId(auth.userId)
-    merchantId.value = m.id
-    shopName.value = m.shopName
-    await Promise.all([
-      loadOrders(),
-      pageMerchantOrders(m.id, { pageNum: 1, pageSize: 1 }).then((d) => {
-        totalOrders.value = d.total
-      }),
-      pageMerchantOrders(m.id, { status: 1, pageNum: 1, pageSize: 1 }).then((d) => {
-        toShipCount.value = d.total
-      }),
-    ])
+    const formHtml = await alipayPayForm(order.orderNo)
+    const holder = document.createElement('div')
+    holder.setAttribute('style', 'display:none')
+    holder.innerHTML = formHtml
+    document.body.appendChild(holder)
+    const form = holder.querySelector('form')
+    if (form) {
+      // 表单自带的自动提交脚本在 innerHTML 中不会执行，这里手动提交
+      form.submit()
+    } else {
+      document.open()
+      document.write(formHtml)
+      document.close()
+    }
   } catch (e) {
-    errorMsg.value = e.message || '未找到当前账号对应的店铺'
+    payingId.value = null
+    showToast(e?.message || '唤起支付宝沙箱失败，请稍后再试')
   }
-})()
+}
 
-const stats = [
-  { label: '店铺总订单', value: totalOrders, en: 'Orders' },
-  { label: '待发货', value: toShipCount, en: 'To Ship' },
-  { label: '在售商品', value: '—', en: 'On Sale' },
-  { label: '商品评价', value: '—', en: 'Reviews' },
-]
-
-const menus = [
-  { icon: '📦', title: '商品管理', desc: '发布商品 · 上下架 · 库存' },
-  { icon: '🚚', title: '物流发货', desc: '填写单号 · 安排发货' },
-  { icon: '🏪', title: '店铺资料', desc: '店铺信息 · 入驻资料维护' },
-  { icon: '💬', title: '评价管理', desc: '查看买家评价与反馈' },
-  { icon: '📍', title: '收货地址', desc: '店铺收货 · 退货地址' },
-]
+/* 待收货订单：确认收货 */
+async function confirmReceive(order) {
+  receivingId.value = order.id
+  try {
+    await receiveOrder(order.id)
+    showToast('已确认收货，感谢您的信任')
+    await loadOrders()
+  } catch (e) {
+    showToast(e?.message || '确认收货失败')
+  } finally {
+    receivingId.value = null
+  }
+}
 
 let toastTimer = null
-function comingSoon() {
-  toast.value = '功能即将上线，敬请期待'
+function showToast(msg) {
+  toastMsg.value = msg
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => {
-    toast.value = ''
+    toastMsg.value = ''
   }, 3000)
 }
+
+loadOrders()
 </script>
 
 <template>
   <HomeLayout>
-    <!-- 欢迎横幅 -->
     <section class="banner">
       <div class="container">
         <div class="banner-inner fade-up">
           <div>
-            <p class="banner-en latin">Merchant Center</p>
-            <h1>{{ auth.username || '商家朋友' }}，生意安昌</h1>
-            <p class="banner-desc">
-              {{ shopName || '好物自有知音' }}，愿每件匠心都被温柔以待
-            </p>
+            <p class="banner-en latin">My Orders</p>
+            <h1>我的订单</h1>
+            <p class="banner-desc">支付记录与物流轨迹，皆可在此安心查看</p>
           </div>
-          <span class="banner-mark">✦</span>
+          <span class="banner-mark">❒</span>
         </div>
       </div>
     </section>
 
-    <!-- 经营概览 -->
     <section class="section">
       <div class="container">
-        <div class="section-head">
-          <h2>经营概览</h2>
-        </div>
-        <div class="stat-grid">
-          <div v-for="s in stats" :key="s.label" class="stat-card card">
-            <p class="stat-value serif">{{ s.value.value ?? s.value }}</p>
-            <p class="stat-label">{{ s.label }}</p>
-            <p class="stat-en latin">{{ s.en }}</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 支付记录 -->
-    <section class="section">
-      <div class="container">
-        <div class="section-head record-head">
-          <div>
-            <p class="section-en latin">Payment Records</p>
-            <h2>支付记录</h2>
-          </div>
-        </div>
-
         <!-- 状态筛选 -->
         <div class="tabs">
           <button
@@ -195,7 +185,7 @@ function comingSoon() {
         <!-- 加载 / 错误 / 空态 -->
         <div v-if="loading" class="state card">
           <span class="state-icon">❋</span>
-          <p>记录加载中…</p>
+          <p>订单加载中…</p>
         </div>
         <div v-else-if="errorMsg" class="state card">
           <span class="state-icon">！</span>
@@ -203,45 +193,84 @@ function comingSoon() {
         </div>
         <div v-else-if="orders.length === 0" class="state card">
           <span class="state-icon">❋</span>
-          <p>暂无相关记录</p>
+          <p>暂无相关订单，去挑一件心仪的美物吧</p>
         </div>
 
-        <!-- 订单记录列表 -->
+        <!-- 订单列表 -->
         <div v-else class="order-list">
           <article v-for="order in orders" :key="order.id" class="order-card card">
             <div class="order-top">
-              <span class="order-no latin">{{ order.orderNo }}</span>
+              <div class="order-meta">
+                <span class="order-no latin">{{ order.orderNo }}</span>
+                <span class="order-time muted">{{ fmtTime(order.createTime) }}</span>
+              </div>
               <span class="status-badge" :class="`st-${order.status}`">
                 {{ STATUS_TEXT[order.status] }}
               </span>
             </div>
 
-            <div class="order-body">
-              <!-- 买家 -->
-              <div class="buyer">
-                <p class="buyer-name serif">{{ order.username || `用户#${order.userId}` }}</p>
-                <p class="muted">买家 ID：{{ order.userId }}</p>
-              </div>
-
-              <!-- 商品 -->
-              <ul class="goods">
-                <li v-for="d in order.detailList" :key="d.id" class="goods-item">
-                  <div class="thumb">
-                    <img v-if="d.productImage" :src="d.productImage" :alt="d.productName" />
-                    <span v-else class="thumb-fallback">素</span>
-                  </div>
+            <!-- 商品明细 -->
+            <ul class="goods">
+              <li v-for="d in order.detailList" :key="d.id" class="goods-item">
+                <div class="thumb">
+                  <img v-if="d.productImage" :src="d.productImage" :alt="d.productName" />
+                  <span v-else class="thumb-fallback">素</span>
+                </div>
+                <div class="goods-info">
                   <p class="goods-name">
                     {{ d.productName }}
-                    <em class="goods-qty">× {{ d.quantity }}</em>
+                    <em v-if="d.specName" class="goods-spec">{{ d.specName }}</em>
                   </p>
-                </li>
-              </ul>
+                  <p class="muted">¥{{ d.price }} × {{ d.quantity }}</p>
+                </div>
+                <p class="goods-subtotal serif">¥{{ d.subtotal }}</p>
+              </li>
+            </ul>
 
-              <!-- 金额与支付信息 -->
-              <div class="pay">
-                <p class="amount serif">¥{{ order.payAmount }}</p>
-                <p class="muted">{{ PAY_TEXT[order.payMethod] || '未支付' }}</p>
-                <p class="muted pay-time">{{ fmtTime(order.payTime) }}</p>
+            <!-- 支付记录 + 物流情况 -->
+            <div class="order-info">
+              <div class="info-block">
+                <p class="info-label">支付记录</p>
+                <p class="info-value">
+                  实付 <em class="amount serif">¥{{ order.payAmount }}</em>
+                </p>
+                <p class="muted">
+                  {{ order.payTime ? `支付方式：${PAY_TEXT[order.payMethod] || '未知'}` : '尚未支付' }}
+                </p>
+                <p v-if="order.payTime" class="muted">支付时间：{{ fmtTime(order.payTime) }}</p>
+              </div>
+
+              <div class="info-block">
+                <p class="info-label">发货情况</p>
+                <template v-if="logisticsMap[order.orderNo]">
+                  <p class="info-value">{{ logisticsMap[order.orderNo].company }}</p>
+                  <p class="muted latin">单号：{{ logisticsMap[order.orderNo].logisticsNo }}</p>
+                  <p class="muted">状态：{{ LOGISTICS_TEXT[logisticsMap[order.orderNo].status] || '—' }}</p>
+                </template>
+                <p v-else class="muted logistics-empty">
+                  {{ order.status === 1 ? '商家备货中，发货后可查看物流' : order.status === 0 ? '付款后安排发货' : '暂无物流信息' }}
+                </p>
+              </div>
+
+              <div class="actions">
+                <button
+                  v-if="order.status === 0"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="payingId === order.id"
+                  @click="payNow(order)"
+                >
+                  {{ payingId === order.id ? '正在跳转…' : '去支付' }}
+                </button>
+                <button
+                  v-if="order.status === 2"
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="receivingId === order.id"
+                  @click="confirmReceive(order)"
+                >
+                  {{ receivingId === order.id ? '确认中…' : '确认收货' }}
+                </button>
               </div>
             </div>
           </article>
@@ -270,30 +299,8 @@ function comingSoon() {
       </div>
     </section>
 
-    <!-- 经营功能 -->
-    <section class="section">
-      <div class="container">
-        <div class="section-head">
-          <h2>店铺管理</h2>
-        </div>
-        <div class="menu-grid">
-          <button
-            v-for="m in menus"
-            :key="m.title"
-            class="menu-card card"
-            type="button"
-            @click="comingSoon"
-          >
-            <span class="menu-icon">{{ m.icon }}</span>
-            <span class="menu-title serif">{{ m.title }}</span>
-            <span class="menu-desc">{{ m.desc }}</span>
-          </button>
-        </div>
-      </div>
-    </section>
-
     <transition name="toast">
-      <div v-if="toast" class="toast">{{ toast }}</div>
+      <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
     </transition>
   </HomeLayout>
 </template>
@@ -308,7 +315,7 @@ function comingSoon() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 48px 56px;
+  padding: 44px 56px;
   border-radius: var(--radius-lg);
   background: linear-gradient(120deg, var(--color-primary-deep) 0%, var(--color-primary) 55%, var(--color-pink) 100%);
   box-shadow: var(--shadow-md);
@@ -323,8 +330,8 @@ function comingSoon() {
 .banner-inner h1 {
   margin-top: 10px;
   color: #fdf8f3;
-  font-size: 32px;
-  letter-spacing: 0.1em;
+  font-size: 30px;
+  letter-spacing: 0.14em;
 }
 
 .banner-desc {
@@ -335,60 +342,14 @@ function comingSoon() {
 }
 
 .banner-mark {
-  font-size: 56px;
+  font-size: 52px;
   color: rgba(253, 248, 243, 0.55);
 }
 
 /* ---------------- Section ---------------- */
 .section {
-  margin-top: 64px;
-}
-
-.section-head {
-  margin-bottom: 34px;
-}
-
-.section-head h2 {
-  font-size: 24px;
-  letter-spacing: 0.2em;
-}
-
-.section-en {
-  margin-bottom: 6px;
-  font-size: 13px;
-  letter-spacing: 0.3em;
-  color: var(--color-text-placeholder);
-}
-
-/* ---------------- 统计卡 ---------------- */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 22px;
-}
-
-.stat-card {
-  padding: 30px 26px;
-}
-
-.stat-value {
-  font-size: 38px;
-  color: var(--color-accent);
-  line-height: 1.2;
-}
-
-.stat-label {
-  margin-top: 10px;
-  font-size: 14px;
-  letter-spacing: 0.1em;
-  color: var(--color-text-regular);
-}
-
-.stat-en {
-  margin-top: 2px;
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  color: var(--color-text-placeholder);
+  margin-top: 56px;
+  padding-bottom: 40px;
 }
 
 /* ---------------- 状态筛选 ---------------- */
@@ -421,7 +382,7 @@ function comingSoon() {
   border-color: var(--color-primary);
 }
 
-/* ---------------- 订单记录 ---------------- */
+/* ---------------- 订单卡片 ---------------- */
 .order-list {
   display: flex;
   flex-direction: column;
@@ -438,6 +399,12 @@ function comingSoon() {
   justify-content: space-between;
   padding-bottom: 16px;
   border-bottom: 1px dashed var(--color-divider);
+}
+
+.order-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
 }
 
 .order-no {
@@ -479,28 +446,13 @@ function comingSoon() {
   background: var(--color-border-light);
 }
 
-.order-body {
-  display: grid;
-  grid-template-columns: 150px 1fr 170px;
-  gap: 28px;
-  padding-top: 18px;
-}
-
-.buyer-name {
-  font-size: 16px;
-  letter-spacing: 0.06em;
-}
-
-.muted {
-  margin-top: 4px;
-  font-size: 12.5px;
-  color: var(--color-text-placeholder);
-}
-
+/* ---------------- 商品明细 ---------------- */
 .goods {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .goods-item {
@@ -510,8 +462,8 @@ function comingSoon() {
 }
 
 .thumb {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   flex-shrink: 0;
   overflow: hidden;
   border-radius: var(--radius-sm);
@@ -532,8 +484,12 @@ function comingSoon() {
   width: 100%;
   height: 100%;
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 20px;
   color: var(--color-primary);
+}
+
+.goods-info {
+  flex: 1;
 }
 
 .goods-name {
@@ -542,24 +498,63 @@ function comingSoon() {
   letter-spacing: 0.04em;
 }
 
-.goods-qty {
+.goods-spec {
   margin-left: 8px;
   font-style: normal;
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+.goods-subtotal {
+  font-size: 15px;
   color: var(--color-text-secondary);
 }
 
-.pay {
-  text-align: right;
+/* ---------------- 支付记录 + 物流 ---------------- */
+.order-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 24px;
+  padding-top: 18px;
+}
+
+.info-label {
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  letter-spacing: 0.22em;
+  color: var(--color-text-placeholder);
+}
+
+.info-value {
+  font-size: 14px;
+  color: var(--color-text-regular);
 }
 
 .amount {
-  font-size: 22px;
+  font-size: 18px;
   color: var(--color-accent);
-  letter-spacing: 0.04em;
 }
 
-.pay-time {
-  white-space: nowrap;
+.muted {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--color-text-placeholder);
+}
+
+.logistics-empty {
+  margin-top: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-sm {
+  padding: 9px 26px;
+  font-size: 13.5px;
 }
 
 /* ---------------- 状态占位 ---------------- */
@@ -614,44 +609,6 @@ function comingSoon() {
   color: var(--color-text-secondary);
 }
 
-/* ---------------- 菜单卡 ---------------- */
-.menu-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 22px;
-}
-
-.menu-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 32px 30px;
-  text-align: left;
-  transition:
-    transform 0.3s ease,
-    box-shadow 0.3s ease;
-}
-
-.menu-card:hover {
-  transform: translateY(-5px);
-  box-shadow: var(--shadow-md);
-}
-
-.menu-icon {
-  font-size: 28px;
-}
-
-.menu-title {
-  font-size: 18px;
-  letter-spacing: 0.12em;
-}
-
-.menu-desc {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
-
 /* ---------------- Toast ---------------- */
 .toast {
   position: fixed;
@@ -682,29 +639,21 @@ function comingSoon() {
 
 /* ---------------- 响应式 ---------------- */
 @media (max-width: 900px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .menu-grid {
-    grid-template-columns: 1fr;
-  }
-
   .banner-inner {
-    padding: 36px 30px;
+    padding: 34px 30px;
   }
 
   .banner-mark {
     display: none;
   }
 
-  .order-body {
+  .order-info {
     grid-template-columns: 1fr;
-    gap: 18px;
+    gap: 20px;
   }
 
-  .pay {
-    text-align: left;
+  .actions {
+    flex-direction: row;
   }
 }
 </style>

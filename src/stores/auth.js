@@ -23,6 +23,11 @@ const ROLE_HOME = {
   MERCHANT: '/merchant/home',
 }
 
+// 各角色的个人中心页（暂只有用户中心，后续可扩展）
+const ROLE_CENTER = {
+  USER: '/user/center',
+}
+
 function normalizeRole(role) {
   if (!role) return ''
   let r = String(role).trim().toUpperCase()
@@ -71,6 +76,9 @@ export const useAuthStore = defineStore('auth', {
     },
     homePath() {
       return ROLE_HOME[this.role] || '/login'
+    },
+    centerPath() {
+      return ROLE_CENTER[this.role] || ''
     },
   },
 
@@ -125,6 +133,22 @@ export const useAuthStore = defineStore('auth', {
       this.user = { ...this.user, ...user }
       localStorage.setItem(USER_KEY, JSON.stringify(this.user))
       return user
+    },
+
+    /**
+     * 修改资料成功后，本地同步可展示字段（昵称 / 邮箱 / 头像 / 性别）
+     * @param {{ nickname?: string, email?: string, avatar?: string, gender?: number }} data
+     */
+    syncProfile(data = {}) {
+      this.user = {
+        ...this.user,
+        nickname: data.nickname ?? this.user.nickname,
+        email: data.email ?? this.user.email,
+        avatar: data.avatar ?? this.user.avatar,
+        gender: data.gender ?? this.user.gender,
+      }
+      if (data.nickname && !this.user.username) this.user.username = data.nickname
+      localStorage.setItem(USER_KEY, JSON.stringify(this.user))
     },
 
     logout() {

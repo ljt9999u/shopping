@@ -39,6 +39,9 @@ const imageUrl = computed(() => {
         <span class="latin">SUWU</span>
         <strong>素物</strong>
       </div>
+      <p class="disclaimer disclaimer-mobile">
+        （本站为个人测试网站，里面消费均为测试数据请勿消费，如有消费与本站拥有人无关）
+      </p>
 
       <div class="auth-panel fade-up">
         <header class="auth-header">
@@ -49,6 +52,9 @@ const imageUrl = computed(() => {
         <slot />
       </div>
 
+      <p class="disclaimer disclaimer-desktop">
+        （本站为个人测试网站，里面消费均为测试数据请勿消费，如有消费与本站拥有人无关）
+      </p>
       <p class="auth-foot">© 2026 素物 SUWU · 文艺轻奢生活商城</p>
     </main>
   </div>
@@ -190,6 +196,26 @@ const imageUrl = computed(() => {
   letter-spacing: 0.08em;
 }
 
+/* 免责声明 */
+.disclaimer {
+  width: 100%;
+  max-width: 400px;
+  font-size: 12px;
+  line-height: 1.8;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+/* 桌面端：品牌下的声明隐藏，底部声明显示 */
+.disclaimer-mobile {
+  display: none;
+}
+
+.disclaimer-desktop {
+  margin-top: 26px;
+  text-align: center;
+}
+
 /* ---------------- 响应式 ---------------- */
 @media (max-width: 860px) {
   .auth-aside {
@@ -205,9 +231,19 @@ const imageUrl = computed(() => {
     display: flex;
   }
 
+  .disclaimer-mobile {
+    display: block;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .disclaimer-desktop {
+    display: none;
+  }
+
   .auth-foot {
     position: static;
-    margin-top: 60px;
+    margin-top: 40px;
   }
 }
 </style>

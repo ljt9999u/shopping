@@ -1,23 +1,131 @@
 <script setup>
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
+import { pageAllOrders } from '@/api/order'
+import { pageMerchants } from '@/api/merchant'
 
 const auth = useAuthStore()
 const toast = ref('')
 
+// ---------- 支付记录 ----------
+const loading = ref(false)
+const errorMsg = ref('')
+const orders = ref([])
+const activeStatus = ref(null)
+const merchantFilter = ref('')
+const merchantMap = ref({})
+
+const page = reactive({ pageNum: 1, pageSize: 5, total: 0, pages: 0 })
+const totalOrders = ref('—')
+
+const tabs = [
+  { label: '全部状态', value: null },
+  { label: '待付款', value: 0 },
+  { label: '待发货', value: 1 },
+  { label: '待收货', value: 2 },
+  { label: '已完成', value: 3 },
+  { label: '已取消', value: 4 },
+]
+
+const STATUS_TEXT = {
+  0: '待付款',
+  1: '待发货',
+  2: '待收货',
+  3: '已完成',
+  4: '已取消',
+  5: '已退款',
+}
+
+const PAY_TEXT = { 1: '微信支付', 2: '支付宝', 3: '余额支付' }
+
+function pad(n) {
+  return String(n).padStart(2, '0')
+}
+
+// 兼容 Jackson 默认数组格式 [y,m,d,h,mi,s] 与 ISO 字符串
+function fmtTime(t) {
+  if (!t) return '—'
+  if (Array.isArray(t)) {
+    const [y, m, d, h = 0, mi = 0] = t
+    return `${y}-${pad(m)}-${pad(d)} ${pad(h)}:${pad(mi)}`
+  }
+  return String(t).replace('T', ' ').slice(0, 16)
+}
+
+async function loadOrders() {
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const data = await pageAllOrders({
+      merchantId: merchantFilter.value || undefined,
+      status: activeStatus.value,
+      pageNum: page.pageNum,
+      pageSize: page.pageSize,
+    })
+    orders.value = data.list || []
+    page.total = data.total
+    page.pages = data.pages
+  } catch (e) {
+    errorMsg.value = e.message || '记录加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function switchTab(value) {
+  if (activeStatus.value === value) return
+  activeStatus.value = value
+  page.pageNum = 1
+  loadOrders()
+}
+
+function onMerchantChange() {
+  page.pageNum = 1
+  loadOrders()
+}
+
+function goPage(target) {
+  if (target < 1 || target > page.pages || target === page.pageNum) return
+  page.pageNum = target
+  loadOrders()
+}
+
+function shopName(merchantId) {
+  return merchantMap.value[merchantId] || `店铺#${merchantId}`
+}
+
+// ---------- 初始化 ----------
+;(async () => {
+  try {
+    const [merchantPage] = await Promise.all([
+      pageMerchants(1, 100),
+      pageAllOrders({ pageNum: 1, pageSize: 1 }).then((d) => {
+        totalOrders.value = d.total
+      }),
+    ])
+    const map = {}
+    for (const m of merchantPage.list || []) {
+      map[m.id] = m.shopName
+    }
+    merchantMap.value = map
+    await loadOrders()
+  } catch (e) {
+    errorMsg.value = e.message || '数据加载失败'
+  }
+})()
+
 const stats = [
+  { label: '平台订单', value: totalOrders, en: 'Orders' },
   { label: '注册用户', value: '—', en: 'Users' },
   { label: '上架商品', value: '—', en: 'Products' },
-  { label: '平台订单', value: '—', en: 'Orders' },
-  { label: '待审商家', value: '—', en: 'Pending' },
+  { label: '入驻商家', value: '—', en: 'Merchants' },
 ]
 
 const menus = [
   { icon: '👤', title: '用户管理', desc: '查询用户 · 启用禁用账号' },
   { icon: '🏪', title: '商家审核', desc: '入驻申请 · 审核通过拒绝' },
   { icon: '📦', title: '商品管理', desc: '商品浏览 · 全平台商品监管' },
-  { icon: '📋', title: '订单总览', desc: '全平台订单状态跟踪' },
   { icon: '🗂', title: '分类管理', desc: '商品分类树维护' },
   { icon: '🏷', title: '品牌管理', desc: '品牌信息维护' },
 ]
@@ -56,10 +164,127 @@ function comingSoon() {
         </div>
         <div class="stat-grid">
           <div v-for="s in stats" :key="s.label" class="stat-card card">
-            <p class="stat-value serif">{{ s.value }}</p>
+            <p class="stat-value serif">{{ s.value.value ?? s.value }}</p>
             <p class="stat-label">{{ s.label }}</p>
             <p class="stat-en latin">{{ s.en }}</p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 支付记录 -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <p class="section-en latin">Payment Records</p>
+            <h2>全平台支付记录</h2>
+          </div>
+        </div>
+
+        <!-- 筛选：店铺 + 状态 -->
+        <div class="filters">
+          <select v-model="merchantFilter" class="shop-select" @change="onMerchantChange">
+            <option value="">全部店铺</option>
+            <option v-for="(name, id) in merchantMap" :key="id" :value="String(id)">
+              {{ name }}
+            </option>
+          </select>
+
+          <div class="tabs">
+            <button
+              v-for="t in tabs"
+              :key="t.label"
+              type="button"
+              class="tab"
+              :class="{ active: activeStatus === t.value }"
+              @click="switchTab(t.value)"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 加载 / 错误 / 空态 -->
+        <div v-if="loading" class="state card">
+          <span class="state-icon">❋</span>
+          <p>记录加载中…</p>
+        </div>
+        <div v-else-if="errorMsg" class="state card">
+          <span class="state-icon">！</span>
+          <p>{{ errorMsg }}</p>
+        </div>
+        <div v-else-if="orders.length === 0" class="state card">
+          <span class="state-icon">❋</span>
+          <p>暂无相关记录</p>
+        </div>
+
+        <!-- 支付记录列表 -->
+        <div v-else class="order-list">
+          <article v-for="order in orders" :key="order.id" class="order-card card">
+            <div class="order-top">
+              <span class="order-no latin">{{ order.orderNo }}</span>
+              <span class="status-badge" :class="`st-${order.status}`">
+                {{ STATUS_TEXT[order.status] }}
+              </span>
+            </div>
+
+            <div class="order-body">
+              <!-- 买家 -->
+              <div class="buyer">
+                <p class="buyer-name serif">{{ order.username || `用户#${order.userId}` }}</p>
+                <p class="muted">买家 ID：{{ order.userId }}</p>
+              </div>
+
+              <!-- 店铺 -->
+              <div class="shop">
+                <p class="shop-name serif">{{ shopName(order.merchantId) }}</p>
+                <p class="muted">店铺 ID：{{ order.merchantId }}</p>
+              </div>
+
+              <!-- 商品 -->
+              <ul class="goods">
+                <li v-for="d in order.detailList" :key="d.id" class="goods-item">
+                  <div class="thumb">
+                    <img v-if="d.productImage" :src="d.productImage" :alt="d.productName" />
+                    <span v-else class="thumb-fallback">素</span>
+                  </div>
+                  <p class="goods-name">
+                    {{ d.productName }}
+                    <em class="goods-qty">× {{ d.quantity }}</em>
+                  </p>
+                </li>
+              </ul>
+
+              <!-- 金额与支付信息 -->
+              <div class="pay">
+                <p class="amount serif">¥{{ order.payAmount }}</p>
+                <p class="muted">{{ PAY_TEXT[order.payMethod] || '未支付' }}</p>
+                <p class="muted pay-time">{{ fmtTime(order.payTime) }}</p>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <!-- 分页 -->
+        <div v-if="!loading && !errorMsg && page.total > 0" class="pagination">
+          <button
+            type="button"
+            class="page-btn"
+            :disabled="page.pageNum <= 1"
+            @click="goPage(page.pageNum - 1)"
+          >
+            ← 上一页
+          </button>
+          <span class="page-info latin">{{ page.pageNum }} / {{ Math.max(page.pages, 1) }}</span>
+          <button
+            type="button"
+            class="page-btn"
+            :disabled="page.pageNum >= page.pages"
+            @click="goPage(page.pageNum + 1)"
+          >
+            下一页 →
+          </button>
         </div>
       </div>
     </section>
@@ -147,6 +372,13 @@ function comingSoon() {
   letter-spacing: 0.2em;
 }
 
+.section-en {
+  margin-bottom: 6px;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  color: var(--color-text-placeholder);
+}
+
 /* ---------------- 统计卡 ---------------- */
 .stat-grid {
   display: grid;
@@ -177,6 +409,253 @@ function comingSoon() {
   font-size: 12px;
   letter-spacing: 0.2em;
   color: var(--color-text-placeholder);
+}
+
+/* ---------------- 筛选区 ---------------- */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.shop-select {
+  padding: 9px 20px;
+  font-size: 13.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-regular);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  transition: border-color 0.3s ease;
+}
+
+.shop-select:hover,
+.shop-select:focus {
+  border-color: var(--color-primary);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tab {
+  padding: 9px 24px;
+  font-size: 13.5px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-regular);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  transition: all 0.3s ease;
+}
+
+.tab:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-deep);
+}
+
+.tab.active {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* ---------------- 订单记录 ---------------- */
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.order-card {
+  padding: 24px 30px;
+}
+
+.order-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--color-divider);
+}
+
+.order-no {
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.status-badge {
+  padding: 5px 18px;
+  font-size: 12.5px;
+  letter-spacing: 0.12em;
+  border-radius: var(--radius-pill);
+}
+
+.status-badge.st-0 {
+  color: var(--color-primary-deep);
+  background: var(--color-primary-soft);
+}
+
+.status-badge.st-1 {
+  color: var(--color-accent-deep);
+  background: var(--color-pink-soft);
+}
+
+.status-badge.st-2 {
+  color: #6e7c5f;
+  background: #e6eadf;
+}
+
+.status-badge.st-3 {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-soft);
+}
+
+.status-badge.st-4,
+.status-badge.st-5 {
+  color: var(--color-text-placeholder);
+  background: var(--color-border-light);
+}
+
+.order-body {
+  display: grid;
+  grid-template-columns: 140px 160px 1fr 160px;
+  gap: 24px;
+  padding-top: 18px;
+}
+
+.buyer-name,
+.shop-name {
+  font-size: 16px;
+  letter-spacing: 0.06em;
+}
+
+.muted {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--color-text-placeholder);
+}
+
+.goods {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.goods-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.thumb {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-light);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--color-primary);
+}
+
+.goods-name {
+  font-size: 14px;
+  color: var(--color-text-regular);
+  letter-spacing: 0.04em;
+}
+
+.goods-qty {
+  margin-left: 8px;
+  font-style: normal;
+  color: var(--color-text-secondary);
+}
+
+.pay {
+  text-align: right;
+}
+
+.amount {
+  font-size: 22px;
+  color: var(--color-accent);
+  letter-spacing: 0.04em;
+}
+
+.pay-time {
+  white-space: nowrap;
+}
+
+/* ---------------- 状态占位 ---------------- */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 20px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+
+.state-icon {
+  font-size: 30px;
+  color: var(--color-primary);
+}
+
+/* ---------------- 分页 ---------------- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  margin-top: 36px;
+}
+
+.page-btn {
+  padding: 10px 26px;
+  font-size: 13.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-regular);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  transition: all 0.3s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary-deep);
+}
+
+.page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--color-text-secondary);
 }
 
 /* ---------------- 菜单卡 ---------------- */
@@ -246,6 +725,16 @@ function comingSoon() {
 }
 
 /* ---------------- 响应式 ---------------- */
+@media (max-width: 1000px) {
+  .order-body {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pay {
+    text-align: left;
+  }
+}
+
 @media (max-width: 900px) {
   .stat-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -261,6 +750,13 @@ function comingSoon() {
 
   .banner-mark {
     display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .order-body {
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 }
 </style>
