@@ -1,9 +1,12 @@
 <script setup>
 import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getMerchantByUserId } from '@/api/merchant'
 import { pageMerchantOrders } from '@/api/order'
+
+const router = useRouter()
 
 const auth = useAuthStore()
 const toast = ref('')
@@ -117,7 +120,7 @@ const stats = [
 ]
 
 const menus = [
-  { icon: '📦', title: '商品管理', desc: '发布商品 · 上下架 · 库存' },
+  { icon: '📦', title: '商品管理', desc: '发布商品 · 上下架 · 库存', path: '/merchant/products' },
   { icon: '🚚', title: '物流发货', desc: '填写单号 · 安排发货' },
   { icon: '🏪', title: '店铺资料', desc: '店铺信息 · 入驻资料维护' },
   { icon: '💬', title: '评价管理', desc: '查看买家评价与反馈' },
@@ -131,6 +134,14 @@ function comingSoon() {
   toastTimer = setTimeout(() => {
     toast.value = ''
   }, 3000)
+}
+
+function handleMenuClick(menu) {
+  if (menu.path) {
+    router.push(menu.path)
+  } else {
+    comingSoon()
+  }
 }
 </script>
 
@@ -282,7 +293,7 @@ function comingSoon() {
             :key="m.title"
             class="menu-card card"
             type="button"
-            @click="comingSoon"
+            @click="handleMenuClick(m)"
           >
             <span class="menu-icon">{{ m.icon }}</span>
             <span class="menu-title serif">{{ m.title }}</span>

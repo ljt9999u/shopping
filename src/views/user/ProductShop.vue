@@ -8,6 +8,7 @@ import {
   listProductComments,
   getCommentSummary,
 } from '@/api/product'
+import { getMerchantById } from '@/api/merchant'
 import { useCartStore } from '@/stores/cart'
 
 const route = useRoute()
@@ -116,6 +117,12 @@ const commentPageSize = 5
 const commentTotal = ref(0)
 const commentSummary = ref(null)
 
+/* 商家信息 */
+const merchant = ref(null)
+const merchantLoading = ref(false)
+const merchantError = ref('')
+const merchantPanelOpen = ref(false) // 商家详情展开状态
+
 const commentHasMore = computed(() => comments.value.length < commentTotal.value)
 
 async function openDetail(product) {
@@ -124,11 +131,44 @@ async function openDetail(product) {
   commentTotal.value = 0
   commentSummary.value = null
   commentPage.value = 1
-  await Promise.all([loadSummary(product.id), loadComments(product.id, 1)])
+  merchant.value = null
+  merchantError.value = ''
+  merchantPanelOpen.value = false
+  await Promise.all([
+    loadSummary(product.id),
+    loadComments(product.id, 1),
+    loadMerchant(product.merchantId),
+  ])
 }
 
 function closeDetail() {
   detailProduct.value = null
+}
+
+async function loadMerchant(merchantId) {
+  if (!merchantId) {
+    merchantError.value = '商品暂无商家信息'
+    return
+  }
+  merchantLoading.value = true
+  merchantError.value = ''
+  try {
+    // 响应拦截器已解包 Result，直接返回 Merchant 对象
+    const data = await getMerchantById(merchantId)
+    if (data && data.id) {
+      merchant.value = data
+    } else {
+      merchantError.value = '商家信息加载失败'
+    }
+  } catch (e) {
+    merchantError.value = e?.message || '商家信息加载失败'
+  } finally {
+    merchantLoading.value = false
+  }
+}
+
+function toggleMerchantPanel() {
+  merchantPanelOpen.value = !merchantPanelOpen.value
 }
 
 async function loadSummary(productId) {
@@ -541,6 +581,39 @@ onMounted(async () => {
                   }}
                 </button>
               </div>
+            </section>
+
+            <!-- 商家信息 -->
+            <section class="detail-merchant">
+              <div class="merchant-header" @click="toggleMerchantPanel">
+                <div class="merchant-header-left">
+                  <span class="merchant-icon">店</span>
+                  <span class="merchant-title">商家信息</span>
+                </div>
+                <span class="merchant-toggle">{{ merchantPanelOpen ? '收起' : '展开' }}</span>
+              </div>
+
+              <transition name="merchant-slide">
+                <div v-if="merchantPanelOpen" class="merchant-panel">
+                  <div v-if="merchantLoading" class="merchant-loading">商家信息加载中…</div>
+
+                  <div v-else-if="merchantError" class="merchant-error">{{ merchantError }}</div>
+
+                  <div v-else-if="merchant" class="merchant-card">
+                    <div class="merchant-logo-wrap">
+                      <img v-if="merchant.shopLogo" :src="merchant.shopLogo" :alt="merchant.shopName" class="merchant-logo" />
+                      <div v-else class="merchant-logo-fallback">{{ merchant.shopName?.charAt(0) || '商' }}</div>
+                    </div>
+
+                    <div class="merchant-info">
+                      <h4 class="merchant-name serif">{{ merchant.shopName }}</h4>
+                      <p v-if="merchant.contactPhone" class="merchant-contact">联系电话：{{ merchant.contactPhone }}</p>
+                      <p v-if="merchant.createTime" class="merchant-create">入驻时间：{{ formatTime(merchant.createTime).slice(0, 10) }}</p>
+                      <p v-if="merchant.businessLicense" class="merchant-license">营业执照：{{ merchant.businessLicense }}</p>
+                    </div>
+                  </div>
+                </div>
+              </transition>
             </section>
 
             <!-- 用户评价 -->
@@ -1479,6 +1552,137 @@ onMounted(async () => {
 .detail-add {
   margin-top: 26px;
   padding: 13px 42px;
+}
+
+/* 商家信息区块 */
+.detail-merchant {
+  padding: 0 36px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.merchant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.merchant-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.merchant-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-soft);
+  color: var(--color-accent-deep);
+  font-size: 15px;
+  border-radius: 50%;
+}
+
+.merchant-title {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  letter-spacing: 0.1em;
+  color: var(--color-text);
+}
+
+.merchant-toggle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.merchant-panel {
+  overflow: hidden;
+  padding-bottom: 24px;
+}
+
+.merchant-loading,
+.merchant-error {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+}
+
+.merchant-card {
+  display: flex;
+  gap: 20px;
+  padding: 22px 24px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.merchant-logo-wrap {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-primary-soft);
+}
+
+.merchant-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.merchant-logo-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: var(--color-accent-deep);
+  font-family: var(--font-serif);
+}
+
+.merchant-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.merchant-name {
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+}
+
+.merchant-contact,
+.merchant-create,
+.merchant-license {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.04em;
+}
+
+.merchant-license {
+  color: var(--color-text-placeholder);
+  font-size: 12.5px;
+}
+
+/* 商家面板展开动画 */
+.merchant-slide-enter-active,
+.merchant-slide-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.merchant-slide-enter-from,
+.merchant-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* 评价区 */

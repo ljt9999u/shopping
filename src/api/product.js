@@ -4,6 +4,8 @@ import request from '@/utils/request'
  * 商品服务（/api/product）
  */
 
+// ==================== 通用查询 ====================
+
 /**
  * 根据 ID 查询商品
  * @param {number|string} id
@@ -35,6 +37,81 @@ export function searchProducts(params) {
 export function pageByCategory(params) {
   return request.get('/product/category', { params })
 }
+
+// ==================== 商家后台 ====================
+
+/**
+ * 按商家分页查询商品（含全部状态）
+ * @param {number} merchantId
+ * @param {{ status?: number|null, pageNum?: number, pageSize?: number }} params
+ */
+export function pageProductsByMerchant(merchantId, params = {}) {
+  return request.get(`/product/merchant/${merchantId}`, { params })
+}
+
+/**
+ * 新增商品
+ * @param {object} product
+ */
+export function addProduct(product) {
+  return request.post('/product/add', product)
+}
+
+/**
+ * 更新商品
+ * @param {object} product
+ */
+export function updateProduct(product) {
+  return request.put('/product/update', product)
+}
+
+/**
+ * 下架商品（逻辑删除）
+ * @param {number|string} id
+ */
+export function deleteProduct(id) {
+  return request.delete(`/product/${id}`)
+}
+
+// ==================== 管理员审核 ====================
+
+/**
+ * 分页查询待审核商品（status=2）
+ * @param {{ pageNum?: number, pageSize?: number }} params
+ */
+export function pageAuditProducts(params = {}) {
+  return request.get('/product/audit/list', { params })
+}
+
+/**
+ * 审核商品
+ * @param {number|string} id 商品ID
+ * @param {1|0} status 1通过上架，0拒绝下架
+ * @param {string} [rejectReason] 拒绝原因（拒绝时必填）
+ */
+export function auditProduct(id, status, rejectReason) {
+  return request.put('/product/audit', null, {
+    params: { id, status, rejectReason },
+  })
+}
+
+// ==================== 辅助数据 ====================
+
+/**
+ * 获取全部分类平铺列表（商家发布商品用）
+ */
+export function listCategories() {
+  return request.get('/category/list')
+}
+
+/**
+ * 获取全部品牌列表（商家发布商品用）
+ */
+export function listBrands() {
+  return request.get('/brand/list')
+}
+
+// ==================== 评价 ====================
 
 /**
  * 分页查询商品评价

@@ -78,6 +78,13 @@ const router = createRouter({
       component: () => import('@/views/merchant/MerchantHome.vue'),
       meta: { requiresAuth: true, role: 'MERCHANT' },
     },
+    // 商家商品管理
+    {
+      path: '/merchant/products',
+      name: 'merchant-products',
+      component: () => import('@/views/merchant/MerchantProductManage.vue'),
+      meta: { requiresAuth: true, role: 'MERCHANT' },
+    },
     // 兜底：未匹配路由回到根路径再分发
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

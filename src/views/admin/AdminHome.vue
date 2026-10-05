@@ -1,12 +1,19 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { pageAllOrders } from '@/api/order'
-import { pageMerchants } from '@/api/merchant'
+import { pageMerchants, getMerchantById } from '@/api/merchant'
+import { pageAuditProducts, auditProduct } from '@/api/product'
 
 const auth = useAuthStore()
 const toast = ref('')
+let toastTimer = null
+function showToast(msg) {
+  toast.value = msg
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toast.value = ''), 2600)
+}
 
 // ---------- 支付记录 ----------
 const loading = ref(false)
@@ -95,8 +102,84 @@ function shopName(merchantId) {
   return merchantMap.value[merchantId] || `店铺#${merchantId}`
 }
 
+// ---------- 商品审核 ----------
+const auditLoading = ref(false)
+const auditError = ref('')
+const auditList = ref([])
+const auditPage = reactive({ pageNum: 1, pageSize: 8, total: 0, pages: 0 })
+const auditMerchantMap = ref({})
+const auditingId = ref(null)
+
+async function loadAudit() {
+  auditLoading.value = true
+  auditError.value = ''
+  try {
+    const data = await pageAuditProducts({
+      pageNum: auditPage.pageNum,
+      pageSize: auditPage.pageSize,
+    })
+    auditList.value = data.list || []
+    auditPage.total = data.total
+    auditPage.pages = data.pages
+    // 批量补齐店铺名
+    const ids = [...new Set(auditList.value.map((p) => p.merchantId).filter(Boolean))]
+    const missing = ids.filter((id) => auditMerchantMap.value[id] === undefined)
+    for (const id of missing) {
+      try {
+        const m = await getMerchantById(id)
+        auditMerchantMap.value[id] = m.shopName
+      } catch {
+        auditMerchantMap.value[id] = `店铺#${id}`
+      }
+    }
+  } catch (e) {
+    auditError.value = e.message || '待审核商品加载失败'
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function approve(item) {
+  if (!window.confirm(`确认通过「${item.name}」的审核？通过后商品将立即上架。`)) return
+  auditingId.value = item.id
+  try {
+    await auditProduct(item.id, 1)
+    showToast('审核通过，商品已上架')
+    await loadAudit()
+  } catch (e) {
+    showToast(e.message || '审核失败')
+  } finally {
+    auditingId.value = null
+  }
+}
+
+async function reject(item) {
+  const reason = window.prompt(`请输入「${item.name}」的审核拒绝原因：`, '')
+  if (reason === null) return
+  if (!reason.trim()) {
+    showToast('请填写拒绝原因')
+    return
+  }
+  auditingId.value = item.id
+  try {
+    await auditProduct(item.id, 0, reason.trim())
+    showToast('已拒绝，商品已下架')
+    await loadAudit()
+  } catch (e) {
+    showToast(e.message || '操作失败')
+  } finally {
+    auditingId.value = null
+  }
+}
+
+function goAuditPage(target) {
+  if (target < 1 || target > auditPage.pages || target === auditPage.pageNum) return
+  auditPage.pageNum = target
+  loadAudit()
+}
+
 // ---------- 初始化 ----------
-;(async () => {
+onMounted(async () => {
   try {
     const [merchantPage] = await Promise.all([
       pageMerchants(1, 100),
@@ -109,11 +192,11 @@ function shopName(merchantId) {
       map[m.id] = m.shopName
     }
     merchantMap.value = map
-    await loadOrders()
+    await Promise.all([loadOrders(), loadAudit()])
   } catch (e) {
     errorMsg.value = e.message || '数据加载失败'
   }
-})()
+})
 
 const stats = [
   { label: '平台订单', value: totalOrders, en: 'Orders' },
@@ -130,13 +213,8 @@ const menus = [
   { icon: '🏷', title: '品牌管理', desc: '品牌信息维护' },
 ]
 
-let toastTimer = null
 function comingSoon() {
-  toast.value = '功能即将上线，敬请期待'
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
-    toast.value = ''
-  }, 3000)
+  showToast('功能即将上线，敬请期待')
 }
 </script>
 
@@ -289,6 +367,93 @@ function comingSoon() {
       </div>
     </section>
 
+    <!-- 商品审核 -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head record-head">
+          <div>
+            <p class="section-en latin">Product Audit</p>
+            <h2>商品审核</h2>
+          </div>
+          <span class="audit-count" v-if="auditPage.total > 0">{{ auditPage.total }} 件待审核</span>
+        </div>
+
+        <div v-if="auditLoading" class="state card">
+          <span class="state-icon">❋</span>
+          <p>待审核商品加载中…</p>
+        </div>
+        <div v-else-if="auditError" class="state card">
+          <span class="state-icon">！</span>
+          <p>{{ auditError }}</p>
+        </div>
+        <div v-else-if="auditList.length === 0" class="state card">
+          <span class="state-icon">✓</span>
+          <p>暂无待审核商品</p>
+        </div>
+
+        <div v-else class="audit-list">
+          <article v-for="item in auditList" :key="item.id" class="audit-card card">
+            <div class="audit-thumb">
+              <img v-if="item.mainImage" :src="item.mainImage" :alt="item.name" />
+              <span v-else class="thumb-fallback">素</span>
+            </div>
+
+            <div class="audit-info">
+              <div class="info-top">
+                <h3 class="audit-name serif">{{ item.name }}</h3>
+                <span class="audit-price serif">¥{{ item.price }}</span>
+              </div>
+              <p class="audit-subtitle">{{ item.subtitle || '—' }}</p>
+              <div class="audit-meta">
+                <span class="meta-item">店铺：{{ auditMerchantMap[item.merchantId] || `店铺#${item.merchantId}` }}</span>
+                <span class="meta-item">库存：{{ item.stock }}</span>
+                <span class="meta-item">提交时间：{{ fmtTime(item.createTime) }}</span>
+              </div>
+            </div>
+
+            <div class="audit-ops">
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="auditingId === item.id"
+                @click="approve(item)"
+              >
+                通过并上架
+              </button>
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="auditingId === item.id"
+                @click="reject(item)"
+              >
+                拒绝
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div v-if="!auditLoading && auditPage.total > 0" class="pagination">
+          <button
+            type="button"
+            class="page-btn"
+            :disabled="auditPage.pageNum <= 1"
+            @click="goAuditPage(auditPage.pageNum - 1)"
+          >
+            ← 上一页
+          </button>
+          <span class="page-info latin">{{ auditPage.pageNum }} / {{ Math.max(auditPage.pages, 1) }}</span>
+          <button
+            type="button"
+            class="page-btn"
+            :disabled="auditPage.pageNum >= auditPage.pages"
+            @click="goAuditPage(auditPage.pageNum + 1)"
+          >
+            下一页 →
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- 管理功能 -->
     <section class="section">
       <div class="container">
@@ -377,6 +542,121 @@ function comingSoon() {
   font-size: 13px;
   letter-spacing: 0.3em;
   color: var(--color-text-placeholder);
+}
+
+.record-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.audit-count {
+  padding: 6px 16px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--color-accent-deep);
+  background: var(--color-pink-soft);
+  border-radius: var(--radius-pill);
+}
+
+/* ---------------- 商品审核列表 ---------------- */
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.audit-card {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  align-items: center;
+  gap: 22px;
+  padding: 20px 24px;
+}
+
+.audit-thumb {
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-light);
+}
+
+.audit-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.audit-thumb .thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  color: var(--color-primary);
+}
+
+.audit-info {
+  min-width: 0;
+}
+
+.info-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.audit-name {
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-price {
+  font-size: 18px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.audit-subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 8px;
+}
+
+.audit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.audit-meta .meta-item {
+  font-size: 12.5px;
+  color: var(--color-text-placeholder);
+}
+
+.audit-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: 8px 18px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* ---------------- 统计卡 ---------------- */
