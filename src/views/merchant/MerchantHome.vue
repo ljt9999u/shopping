@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getMerchantByUserId } from '@/api/merchant'
-import { pageMerchantOrders } from '@/api/order'
+import { pageMerchantOrders, shipOrder, getLogistics } from '@/api/order'
 
 const router = useRouter()
 
@@ -59,6 +59,11 @@ function fmtTime(t) {
   return String(t).replace('T', ' ').slice(0, 16)
 }
 
+// ---------- 物流信息（已发货/已完成订单） ----------
+const logisticsMap = ref({}) // orderNo -> Logistics
+
+const LOGISTICS_TEXT = { 0: '待发货', 1: '已发货', 2: '已签收' }
+
 async function loadOrders() {
   if (!merchantId.value) return
   loading.value = true
@@ -72,6 +77,17 @@ async function loadOrders() {
     orders.value = data.list || []
     page.total = data.total
     page.pages = data.pages
+    // 已发货（待收货/已完成）的订单查询物流单号
+    const shipped = orders.value.filter((o) => o.status === 2 || o.status === 3)
+    await Promise.all(
+      shipped.map(async (o) => {
+        try {
+          logisticsMap.value[o.orderNo] = await getLogistics(o.orderNo)
+        } catch {
+          /* 无物流记录时静默忽略 */
+        }
+      }),
+    )
   } catch (e) {
     errorMsg.value = e.message || '订单加载失败'
   } finally {
@@ -90,6 +106,61 @@ function goPage(target) {
   if (target < 1 || target > page.pages || target === page.pageNum) return
   page.pageNum = target
   loadOrders()
+}
+
+// ---------- 发货 ----------
+const EXPRESS_COMPANIES = [
+  '顺丰速运',
+  '京东物流',
+  '中通快递',
+  '圆通速递',
+  '申通快递',
+  '韵达速递',
+  '邮政EMS',
+  '极兔速递',
+  '德邦快递',
+]
+
+const shipVisible = ref(false)
+const shipping = ref(false)
+const shipForm = reactive({ orderId: null, orderNo: '', company: '顺丰速运', logisticsNo: '' })
+
+function openShip(order) {
+  shipForm.orderId = order.id
+  shipForm.orderNo = order.orderNo
+  shipForm.company = '顺丰速运'
+  shipForm.logisticsNo = ''
+  shipVisible.value = true
+}
+
+function closeShip() {
+  if (shipping.value) return
+  shipVisible.value = false
+}
+
+async function submitShip() {
+  const no = shipForm.logisticsNo.trim()
+  if (!shipForm.company) {
+    toast.value = '请选择物流公司'
+    return
+  }
+  if (!no) {
+    toast.value = '请填写物流单号'
+    return
+  }
+  shipping.value = true
+  try {
+    await shipOrder(shipForm.orderId, { logisticsNo: no, company: shipForm.company })
+    shipVisible.value = false
+    toast.value = '发货成功，订单已进入待收货'
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => (toast.value = ''), 2600)
+    await loadOrders()
+  } catch (e) {
+    toast.value = e?.message || '发货失败，请稍后再试'
+  } finally {
+    shipping.value = false
+  }
 }
 
 // ---------- 页面初始化：userId 换 merchantId ----------
@@ -122,7 +193,7 @@ const stats = [
 const menus = [
   { icon: '📦', title: '商品管理', desc: '发布商品 · 上下架 · 库存', path: '/merchant/products' },
   { icon: '🗂', title: '分类管理', desc: '商品分类 · 新增维护', path: '/merchant/categories' },
-  { icon: '🚚', title: '物流发货', desc: '填写单号 · 安排发货' },
+  { icon: '🚚', title: '物流发货', desc: '待发货订单 · 填写快递单号', action: 'shipList' },
   { icon: '🏪', title: '店铺资料', desc: '店铺信息 · 入驻资料维护' },
   { icon: '💬', title: '评价管理', desc: '查看买家评价与反馈' },
   { icon: '📍', title: '收货地址', desc: '店铺收货 · 退货地址' },
@@ -140,6 +211,16 @@ function comingSoon() {
 function handleMenuClick(menu) {
   if (menu.path) {
     router.push(menu.path)
+  } else if (menu.action === 'shipList') {
+    // 切到「待发货」并定位到支付记录区
+    if (activeStatus.value !== 1) {
+      activeStatus.value = 1
+      page.pageNum = 1
+      loadOrders()
+    }
+    requestAnimationFrame(() => {
+      document.getElementById('merchant-order-records')?.scrollIntoView({ behavior: 'smooth' })
+    })
   } else {
     comingSoon()
   }
@@ -181,7 +262,7 @@ function handleMenuClick(menu) {
     </section>
 
     <!-- 支付记录 -->
-    <section class="section">
+    <section id="merchant-order-records" class="section">
       <div class="container">
         <div class="section-head record-head">
           <div>
@@ -256,6 +337,25 @@ function handleMenuClick(menu) {
                 <p class="muted pay-time">{{ fmtTime(order.payTime) }}</p>
               </div>
             </div>
+
+            <!-- 发货操作 / 物流信息 -->
+            <div class="order-foot">
+              <template v-if="order.status === 1">
+                <span class="ship-tip">买家已付款，请尽快发货</span>
+                <button class="btn btn-primary btn-ship" type="button" @click="openShip(order)">
+                  🚚 填写物流发货
+                </button>
+              </template>
+              <template v-else-if="logisticsMap[order.orderNo]">
+                <div class="ship-info">
+                  <span class="ship-company">{{ logisticsMap[order.orderNo].company }}</span>
+                  <span class="muted latin">单号：{{ logisticsMap[order.orderNo].logisticsNo }}</span>
+                  <span class="ship-state">
+                    {{ LOGISTICS_TEXT[logisticsMap[order.orderNo].status] || '—' }}
+                  </span>
+                </div>
+              </template>
+            </div>
           </article>
         </div>
 
@@ -303,6 +403,44 @@ function handleMenuClick(menu) {
         </div>
       </div>
     </section>
+
+    <!-- 发货弹窗 -->
+    <div v-if="shipVisible" class="modal-mask" @click.self="closeShip">
+      <div class="ship-modal card">
+        <div class="modal-head">
+          <h3 class="serif">物流发货</h3>
+          <button class="modal-close" type="button" @click="closeShip">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="ship-order-no muted">订单号：<span class="latin">{{ shipForm.orderNo }}</span></p>
+          <div class="form-item">
+            <label>物流公司 <em>*</em></label>
+            <select v-model="shipForm.company">
+              <option v-for="c in EXPRESS_COMPANIES" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label>物流单号 <em>*</em></label>
+            <input
+              v-model="shipForm.logisticsNo"
+              type="text"
+              maxlength="40"
+              placeholder="请输入快递单号"
+              @keyup.enter="submitShip"
+            />
+          </div>
+          <p class="ship-notice">发货后订单状态将变为「待收货」，买家可在订单中查看物流信息。</p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-outline" type="button" :disabled="shipping" @click="closeShip">
+            取消
+          </button>
+          <button class="btn btn-primary" type="button" :disabled="shipping" @click="submitShip">
+            {{ shipping ? '发货中…' : '确认发货' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
@@ -662,6 +800,151 @@ function handleMenuClick(menu) {
 .menu-desc {
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+
+/* ---------------- 发货操作 / 物流 ---------------- */
+.order-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-divider);
+}
+
+.ship-tip {
+  font-size: 13px;
+  color: var(--color-accent-deep);
+  letter-spacing: 0.08em;
+}
+
+.btn-ship {
+  padding: 9px 24px;
+  font-size: 13.5px;
+}
+
+.ship-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.ship-company {
+  color: var(--color-text-regular);
+  letter-spacing: 0.06em;
+}
+
+.ship-state {
+  padding: 4px 14px;
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
+  color: #6e7c5f;
+  background: #e6eadf;
+  border-radius: var(--radius-pill);
+}
+
+/* ---------------- 发货弹窗 ---------------- */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(61, 48, 40, 0.45);
+}
+
+.ship-modal {
+  width: 460px;
+  max-width: 100%;
+  padding: 0;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.modal-head h3 {
+  font-size: 18px;
+  letter-spacing: 0.14em;
+}
+
+.modal-close {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.modal-close:hover {
+  color: var(--color-accent);
+}
+
+.modal-body {
+  padding: 24px 28px 8px;
+}
+
+.ship-order-no {
+  margin-bottom: 18px !important;
+  margin-top: 0;
+  font-size: 13px;
+}
+
+.form-item {
+  margin-bottom: 18px;
+}
+
+.form-item label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-regular);
+}
+
+.form-item label em {
+  color: #b4655a;
+  font-style: normal;
+}
+
+.form-item input,
+.form-item select {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--color-text-regular);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.25s ease;
+}
+
+.form-item input:focus,
+.form-item select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.ship-notice {
+  font-size: 12.5px;
+  color: var(--color-text-placeholder);
+  letter-spacing: 0.06em;
+  line-height: 1.8;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 18px 28px;
+  border-top: 1px solid var(--color-border-light);
 }
 
 /* ---------------- Toast ---------------- */

@@ -107,6 +107,17 @@ export function getLogistics(orderNo) {
 }
 
 /**
+ * 商家发货（订单须为「待发货」status=1）
+ * @param {number} orderId 订单ID
+ * @param {{ logisticsNo: string, company: string }} info 物流单号、物流公司
+ */
+export function shipOrder(orderId, { logisticsNo, company }) {
+  return request.post('/oride/order/ship', null, {
+    params: { orderId, logisticsNo, company },
+  })
+}
+
+/**
  * 确认收货（订单须为「待收货」）
  */
 export function receiveOrder(orderId) {
