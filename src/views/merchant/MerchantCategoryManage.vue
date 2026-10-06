@@ -6,8 +6,8 @@ import CategoryManagePanel from '@/components/CategoryManagePanel.vue'
 <template>
   <HomeLayout>
     <CategoryManagePanel
-      back-path="/admin/home"
-      subtitle="维护平台商品分类，新增后商家发布商品即可选择，购物页同步展示"
+      back-path="/merchant/home"
+      subtitle="维护本店可用的商品分类，添加后发布商品即可选择，管理员审核通过后在购物页展示"
     />
   </HomeLayout>
 </template>

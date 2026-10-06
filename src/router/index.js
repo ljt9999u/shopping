@@ -92,6 +92,13 @@ const router = createRouter({
       component: () => import('@/views/merchant/MerchantProductManage.vue'),
       meta: { requiresAuth: true, role: 'MERCHANT' },
     },
+    // 商家商品分类管理
+    {
+      path: '/merchant/categories',
+      name: 'merchant-categories',
+      component: () => import('@/views/merchant/MerchantCategoryManage.vue'),
+      meta: { requiresAuth: true, role: 'MERCHANT' },
+    },
     // 兜底：未匹配路由回到根路径再分发
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
