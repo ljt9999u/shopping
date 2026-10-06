@@ -99,6 +99,27 @@ const router = createRouter({
       component: () => import('@/views/merchant/MerchantCategoryManage.vue'),
       meta: { requiresAuth: true, role: 'MERCHANT' },
     },
+    // 商家店铺资料
+    {
+      path: '/merchant/shop',
+      name: 'merchant-shop',
+      component: () => import('@/views/merchant/MerchantShopInfo.vue'),
+      meta: { requiresAuth: true, role: 'MERCHANT' },
+    },
+    // 商家评价管理
+    {
+      path: '/merchant/comments',
+      name: 'merchant-comments',
+      component: () => import('@/views/merchant/MerchantCommentManage.vue'),
+      meta: { requiresAuth: true, role: 'MERCHANT' },
+    },
+    // 商家退货收货地址
+    {
+      path: '/merchant/address',
+      name: 'merchant-address',
+      component: () => import('@/views/merchant/MerchantAddress.vue'),
+      meta: { requiresAuth: true, role: 'MERCHANT' },
+    },
     // 兜底：未匹配路由回到根路径再分发
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

@@ -28,3 +28,11 @@ export function pageMerchants(pageNum = 1, pageSize = 100) {
     params: { pageNum, pageSize },
   })
 }
+
+/**
+ * 更新商家店铺信息（商家维护店铺资料）
+ * @param {object} data Merchant：{ id, shopName, shopLogo, contactPhone, ... }
+ */
+export function updateMerchant(data) {
+  return request.put('/merchant/update', data)
+}

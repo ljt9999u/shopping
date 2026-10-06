@@ -194,9 +194,9 @@ const menus = [
   { icon: '📦', title: '商品管理', desc: '发布商品 · 上下架 · 库存', path: '/merchant/products' },
   { icon: '🗂', title: '分类管理', desc: '商品分类 · 新增维护', path: '/merchant/categories' },
   { icon: '🚚', title: '物流发货', desc: '待发货订单 · 填写快递单号', action: 'shipList' },
-  { icon: '🏪', title: '店铺资料', desc: '店铺信息 · 入驻资料维护' },
-  { icon: '💬', title: '评价管理', desc: '查看买家评价与反馈' },
-  { icon: '📍', title: '收货地址', desc: '店铺收货 · 退货地址' },
+  { icon: '🏪', title: '店铺资料', desc: '店铺信息 · 入驻资料维护', path: '/merchant/shop' },
+  { icon: '💬', title: '评价管理', desc: '查看买家评价与反馈', path: '/merchant/comments' },
+  { icon: '📍', title: '收货地址', desc: '店铺收货 · 退货地址', path: '/merchant/address' },
 ]
 
 let toastTimer = null

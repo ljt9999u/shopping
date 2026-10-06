@@ -169,3 +169,25 @@ export function listProductComments(productId, params = {}) {
 export function getCommentSummary(productId) {
   return request.get(`/product/comment/summary/${productId}`)
 }
+
+/**
+ * 商家：分页查询本店所有商品的评价（含隐藏）
+ * @param {number|string} merchantId
+ * @param {{ pageNum?: number, pageSize?: number }} params
+ */
+export function pageCommentsByMerchant(merchantId, params = {}) {
+  return request.get(`/product/comment/merchant/${merchantId}`, {
+    params: { pageNum: params.pageNum ?? 1, pageSize: params.pageSize ?? 10 },
+  })
+}
+
+/**
+ * 商家回复评价
+ * @param {number|string} id 评价ID
+ * @param {string} merchantReply 回复内容
+ */
+export function replyComment(id, merchantReply) {
+  return request.put('/product/comment/reply', null, {
+    params: { id, merchantReply },
+  })
+}
