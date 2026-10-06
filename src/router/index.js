@@ -71,6 +71,13 @@ const router = createRouter({
       component: () => import('@/views/admin/AdminHome.vue'),
       meta: { requiresAuth: true, role: 'ADMIN' },
     },
+    // 管理员商品分类管理
+    {
+      path: '/admin/categories',
+      name: 'admin-categories',
+      component: () => import('@/views/admin/AdminCategoryManage.vue'),
+      meta: { requiresAuth: true, role: 'ADMIN' },
+    },
     // 商家首页
     {
       path: '/merchant/home',

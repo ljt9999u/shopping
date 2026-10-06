@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
+import { listCategories } from '@/api/product'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -22,12 +23,17 @@ const entries = [
   { icon: '❒', title: '我的订单', desc: '跟踪订单与物流', to: '/my-orders' },
 ]
 
-const collections = [
-  { name: '茶具器皿', en: 'Tea Ware' },
-  { name: '香氛蜡烛', en: 'Fragrance' },
-  { name: '家居织物', en: 'Textile' },
-  { name: '书房雅物', en: 'Study' },
-]
+// 好物分类：来自后端启用的分类数据，与商家发布商品的分类一致
+const collections = ref([])
+
+onMounted(async () => {
+  try {
+    const data = await listCategories()
+    collections.value = Array.isArray(data) ? data : []
+  } catch {
+    collections.value = []
+  }
+})
 
 let toastTimer = null
 function showToast(msg) {
@@ -48,6 +54,11 @@ function handleEntry(item) {
   } else {
     comingSoon()
   }
+}
+
+// 点击分类 → 进入市集并按分类筛选
+function openCollection(col) {
+  router.push({ path: '/shop', query: { categoryId: col.id } })
 }
 </script>
 
@@ -106,17 +117,20 @@ function handleEntry(item) {
           <h2>好物分类</h2>
           <p class="section-en latin">Collections</p>
         </div>
-        <div class="collection-grid">
+        <div v-if="collections.length" class="collection-grid">
           <button
             v-for="col in collections"
-            :key="col.name"
+            :key="col.id"
             class="collection-card"
             type="button"
-            @click="comingSoon"
+            @click="openCollection(col)"
           >
+            <span v-if="col.icon" class="collection-icon">{{ col.icon }}</span>
             <span class="collection-name serif">{{ col.name }}</span>
-            <span class="collection-en latin">{{ col.en }}</span>
           </button>
+        </div>
+        <div v-else class="collection-empty card">
+          <p>暂无商品分类，管理员可在「商品分类管理」中添加</p>
         </div>
       </div>
     </section>
@@ -262,7 +276,7 @@ function handleEntry(item) {
 /* ---------------- 分类 ---------------- */
 .collection-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
   gap: 22px;
 }
 
@@ -273,7 +287,8 @@ function handleEntry(item) {
   border: 1px solid var(--color-border-light);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   transition:
     background-color 0.35s ease,
     transform 0.3s ease;
@@ -284,15 +299,22 @@ function handleEntry(item) {
   transform: translateY(-4px);
 }
 
+.collection-icon {
+  font-size: 22px;
+  color: var(--color-accent);
+}
+
 .collection-name {
   font-size: 18px;
   letter-spacing: 0.18em;
 }
 
-.collection-en {
-  font-size: 13px;
-  letter-spacing: 0.22em;
+.collection-empty {
+  padding: 48px 20px;
+  text-align: center;
   color: var(--color-text-secondary);
+  font-size: 14px;
+  letter-spacing: 0.1em;
 }
 
 /* ---------------- Toast ---------------- */

@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { pageAllOrders } from '@/api/order'
@@ -7,6 +8,7 @@ import { pageMerchants, getMerchantById } from '@/api/merchant'
 import { pageAuditProducts, auditProduct } from '@/api/product'
 
 const auth = useAuthStore()
+const router = useRouter()
 const toast = ref('')
 let toastTimer = null
 function showToast(msg) {
@@ -209,12 +211,20 @@ const menus = [
   { icon: '👤', title: '用户管理', desc: '查询用户 · 启用禁用账号' },
   { icon: '🏪', title: '商家审核', desc: '入驻申请 · 审核通过拒绝' },
   { icon: '📦', title: '商品管理', desc: '商品浏览 · 全平台商品监管' },
-  { icon: '🗂', title: '分类管理', desc: '商品分类树维护' },
+  { icon: '🗂', title: '分类管理', desc: '商品分类维护 · 新增启停用', to: '/admin/categories' },
   { icon: '🏷', title: '品牌管理', desc: '品牌信息维护' },
 ]
 
 function comingSoon() {
   showToast('功能即将上线，敬请期待')
+}
+
+function handleMenu(m) {
+  if (m.to) {
+    router.push(m.to)
+  } else {
+    comingSoon()
+  }
 }
 </script>
 
@@ -466,7 +476,7 @@ function comingSoon() {
             :key="m.title"
             class="menu-card card"
             type="button"
-            @click="comingSoon"
+            @click="handleMenu(m)"
           >
             <span class="menu-icon">{{ m.icon }}</span>
             <span class="menu-title serif">{{ m.title }}</span>

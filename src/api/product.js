@@ -98,10 +98,50 @@ export function auditProduct(id, status, rejectReason) {
 // ==================== 辅助数据 ====================
 
 /**
- * 获取全部分类平铺列表（商家发布商品用）
+ * 获取全部分类平铺列表（商家发布商品用，仅启用）
  */
 export function listCategories() {
   return request.get('/category/list')
+}
+
+/**
+ * 获取全部分类（管理员分类管理，含禁用）
+ */
+export function listAllCategories() {
+  return request.get('/category/listAll')
+}
+
+/**
+ * 新增分类（管理员）
+ * @param {{ name: string, parentId?: number, icon?: string, sort?: number, status?: number }} data
+ */
+export function addCategory(data) {
+  return request.post('/category/add', data)
+}
+
+/**
+ * 更新分类（管理员）
+ * @param {{ id: number, name?: string, parentId?: number, icon?: string, sort?: number, status?: number }} data
+ */
+export function updateCategory(data) {
+  return request.put('/category/update', data)
+}
+
+/**
+ * 启用/禁用分类（管理员）
+ * @param {number|string} id
+ * @param {0|1} status
+ */
+export function updateCategoryStatus(id, status) {
+  return request.put(`/category/status/${id}`, null, { params: { status } })
+}
+
+/**
+ * 删除分类（管理员，存在子分类时后端拒绝）
+ * @param {number|string} id
+ */
+export function deleteCategory(id) {
+  return request.delete(`/category/${id}`)
 }
 
 /**

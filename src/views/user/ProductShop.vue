@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import {
   pageProducts,
   searchProducts,
+  pageByCategory,
+  listCategories,
   listProductComments,
   getCommentSummary,
 } from '@/api/product'
@@ -23,6 +25,31 @@ function showToast(msg) {
   toastTimer = setTimeout(() => (toast.value = ''), 2400)
 }
 
+/* ===================== 分类筛选 ===================== */
+const categories = ref([])
+const activeCategoryId = ref(null)
+
+async function loadCategories() {
+  try {
+    const data = await listCategories()
+    categories.value = Array.isArray(data) ? data : []
+  } catch {
+    categories.value = []
+  }
+}
+
+const activeCategory = computed(
+  () => categories.value.find((c) => String(c.id) === String(activeCategoryId.value)) || null,
+)
+
+function selectCategory(id) {
+  activeCategoryId.value = id ?? null
+  keyword.value = ''
+  pageNum.value = 1
+  router.replace({ query: activeCategoryId.value ? { categoryId: activeCategoryId.value } : {} })
+  loadProducts()
+}
+
 /* ===================== 商品列表 ===================== */
 const loading = ref(false)
 const products = ref([])
@@ -39,10 +66,15 @@ async function loadProducts() {
   loading.value = true
   try {
     const kw = keyword.value.trim()
-    const params = { pageNum: pageNum.value, pageSize: pageSize.value }
-    const data = kw
-      ? await searchProducts({ ...params, keyword: kw })
-      : await pageProducts(params)
+    const baseParams = { pageNum: pageNum.value, pageSize: pageSize.value }
+    let data
+    if (kw) {
+      data = await searchProducts({ ...baseParams, keyword: kw })
+    } else if (activeCategoryId.value) {
+      data = await pageByCategory({ ...baseParams, categoryId: activeCategoryId.value })
+    } else {
+      data = await pageProducts(baseParams)
+    }
     products.value = data.list || []
     total.value = data.total ?? 0
     totalPages.value = data.pages || 1
@@ -57,6 +89,11 @@ async function loadProducts() {
 function onSearchInput() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    // 搜索时退出分类筛选
+    if (activeCategoryId.value) {
+      activeCategoryId.value = null
+      router.replace({ query: {} })
+    }
     pageNum.value = 1
     loadProducts()
   }, 350)
@@ -275,6 +312,11 @@ function formatPrice(val) {
 }
 
 onMounted(async () => {
+  await loadCategories()
+  // 支持从首页「好物分类」带 categoryId 进入
+  if (route.query.categoryId) {
+    activeCategoryId.value = route.query.categoryId
+  }
   await loadProducts()
   await cart.fetchCart()
   // 从「我的空间 - 购物车」进入时，自动打开悬浮购物车
@@ -283,6 +325,19 @@ onMounted(async () => {
     cart.fetchCart(true)
   }
 })
+
+// 已在市集页时，从首页分类卡片再次跳转也能响应
+watch(
+  () => route.query.categoryId,
+  (val) => {
+    const next = val ?? null
+    if (String(next ?? '') === String(activeCategoryId.value ?? '')) return
+    activeCategoryId.value = next
+    keyword.value = ''
+    pageNum.value = 1
+    loadProducts()
+  },
+)
 </script>
 
 <template>
@@ -314,11 +369,34 @@ onMounted(async () => {
         </div>
       </section>
 
+      <!-- 分类筛选 -->
+      <section v-if="categories.length" class="container category-bar">
+        <button
+          class="cat-chip"
+          :class="{ active: !activeCategoryId }"
+          type="button"
+          @click="selectCategory(null)"
+        >
+          全部
+        </button>
+        <button
+          v-for="cat in categories"
+          :key="cat.id"
+          class="cat-chip"
+          :class="{ active: String(activeCategoryId) === String(cat.id) }"
+          type="button"
+          @click="selectCategory(cat.id)"
+        >
+          {{ cat.name }}
+        </button>
+      </section>
+
       <!-- 商品列表 -->
       <section class="container product-section">
         <div class="result-bar">
           <p class="result-info">
             <span v-if="keyword.trim()">「{{ keyword.trim() }}」的搜索结果</span>
+            <span v-else-if="activeCategory">分类「{{ activeCategory.name }}」</span>
             <span>共 {{ total }} 件好物</span>
           </p>
         </div>
@@ -822,9 +900,42 @@ onMounted(async () => {
   color: var(--color-accent);
 }
 
+/* ---------------- 分类筛选 ---------------- */
+.category-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.cat-chip {
+  padding: 8px 22px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  font-size: 13.5px;
+  letter-spacing: 0.1em;
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.cat-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-accent-deep);
+}
+
+.cat-chip.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fdf8f3;
+}
+
 /* ---------------- 结果栏 ---------------- */
 .product-section {
-  margin-top: 36px;
+  margin-top: 28px;
 }
 
 .result-bar {
