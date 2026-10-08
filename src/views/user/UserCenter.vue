@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
+import ImageUploader from '@/components/ImageUploader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getUserById, updateProfile } from '@/api/user'
 import {
@@ -298,10 +299,24 @@ onMounted(async () => {
               <input v-model="profileForm.email" class="input" type="email" placeholder="选填，用于接收订单通知" />
             </label>
 
-            <label class="field">
-              <span class="field-label">头像地址</span>
-              <input v-model="profileForm.avatar" class="input" type="text" placeholder="选填，粘贴图片 URL" />
-            </label>
+            <div class="field">
+              <span class="field-label">头像</span>
+              <div class="avatar-upload-row">
+                <ImageUploader
+                  v-model="profileForm.avatar"
+                  dir="avatar"
+                  round
+                  :size="72"
+                  button-text="上传头像"
+                />
+                <input
+                  v-model="profileForm.avatar"
+                  class="input"
+                  type="text"
+                  placeholder="选填，也可粘贴图片 URL"
+                />
+              </div>
+            </div>
 
             <div class="field">
               <span class="field-label">性别</span>
@@ -845,5 +860,16 @@ onMounted(async () => {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* 头像上传 + URL 输入并排 */
+.avatar-upload-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.avatar-upload-row .input {
+  flex: 1;
 }
 </style>

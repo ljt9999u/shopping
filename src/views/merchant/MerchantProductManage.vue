@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
+import ImageUploader from '@/components/ImageUploader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getMerchantByUserId } from '@/api/merchant'
 import {
@@ -494,10 +495,18 @@ onMounted(initMerchant)
               </label>
             </div>
 
-            <label class="field">
-              <span class="field-label">主图 URL</span>
-              <input v-model="form.mainImage" class="input" type="text" placeholder="粘贴图片链接" />
-            </label>
+            <div class="field">
+              <span class="field-label">商品主图</span>
+              <div class="main-image-row">
+                <ImageUploader v-model="form.mainImage" dir="product" :size="88" />
+                <input
+                  v-model="form.mainImage"
+                  class="input"
+                  type="text"
+                  placeholder="也可直接粘贴图片链接"
+                />
+              </div>
+            </div>
 
             <label class="field">
               <span class="field-label">商品详情（富文本 / HTML）</span>
@@ -1001,5 +1010,16 @@ onMounted(initMerchant)
   .search-box {
     max-width: none;
   }
+}
+
+/* 主图上传 + URL 输入并排 */
+.main-image-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.main-image-row .input {
+  flex: 1;
 }
 </style>
