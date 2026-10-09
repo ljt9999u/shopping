@@ -95,6 +95,14 @@ export function auditProduct(id, status, rejectReason) {
   })
 }
 
+/**
+ * 管理端分页查询全部状态商品（可按状态、名称过滤）
+ * @param {object} params { status?, keyword?, pageNum, pageSize }
+ */
+export function pageAdminProducts(params = {}) {
+  return request.get('/product/admin/page', { params })
+}
+
 // ==================== 辅助数据 ====================
 
 /**

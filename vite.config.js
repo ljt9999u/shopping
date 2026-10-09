@@ -24,7 +24,7 @@ export default defineConfig({
   },
   server: {
     https: true,
-    port: 5173,
+    port: 5174,
     proxy: {
       // 统一走网关：http://localhost:800
       // 浏览器 → https://localhost:5173（加密）→ Vite 代理 → http 后端

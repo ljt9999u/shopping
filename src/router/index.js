@@ -64,6 +64,34 @@ const router = createRouter({
       component: () => import('@/views/user/MyOrders.vue'),
       meta: { requiresAuth: true, role: 'USER' },
     },
+    // 商家入驻申请：提交认证信息，管理员审核通过后成为商家
+    {
+      path: '/user/merchant-apply',
+      name: 'user-merchant-apply',
+      component: () => import('@/views/user/UserMerchantApply.vue'),
+      meta: { requiresAuth: true, role: 'USER' },
+    },
+    // 管理员用户管理：账号列表 + 启用禁用
+    {
+      path: '/admin/users',
+      name: 'admin-users',
+      component: () => import('@/views/admin/AdminUserManage.vue'),
+      meta: { requiresAuth: true, role: 'ADMIN' },
+    },
+    // 管理员商品监管：全平台商品 + 强制上下架
+    {
+      path: '/admin/products',
+      name: 'admin-products',
+      component: () => import('@/views/admin/AdminProductManage.vue'),
+      meta: { requiresAuth: true, role: 'ADMIN' },
+    },
+    // 管理员商家入驻审核：通过/拒绝 + 执照预览
+    {
+      path: '/admin/merchants',
+      name: 'admin-merchants',
+      component: () => import('@/views/admin/AdminMerchantAudit.vue'),
+      meta: { requiresAuth: true, role: 'ADMIN' },
+    },
     // 管理员首页
     {
       path: '/admin/home',

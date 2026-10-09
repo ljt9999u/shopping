@@ -1,11 +1,13 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import * as echarts from 'echarts'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { pageAllOrders } from '@/api/order'
 import { pageMerchants, getMerchantById } from '@/api/merchant'
 import { pageAuditProducts, auditProduct } from '@/api/product'
+import { fetchAdminStats, fetchStatsDetail } from '@/api/user'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -180,6 +182,186 @@ function goAuditPage(target) {
   loadAudit()
 }
 
+// ---------- 数据看板：统计 + 图表 ----------
+const totalUsers = ref(0)
+const totalProducts = ref(0)
+const totalMerchants = ref(0)
+
+const statItems = computed(() => [
+  { label: '平台订单', value: totalOrders.value, en: 'Orders', action: () => scrollToSection('admin-orders') },
+  { label: '注册用户', value: totalUsers.value, en: 'Users', action: () => router.push('/admin/users') },
+  { label: '上架商品', value: totalProducts.value, en: 'Products', action: () => router.push('/admin/products') },
+  { label: '入驻商家', value: totalMerchants.value, en: 'Merchants', action: () => router.push('/admin/merchants') },
+])
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+}
+
+const revenueChart = ref(null)
+const usersChart = ref(null)
+const merchantsChart = ref(null)
+const productsChart = ref(null)
+const pieChart = ref(null)
+let chartInstances = []
+
+function disposeCharts() {
+  chartInstances.forEach((c) => c.dispose())
+  chartInstances = []
+}
+
+function onWindowResize() {
+  chartInstances.forEach((c) => c.resize())
+}
+
+function lineOption(name, months, data, color, unit = '') {
+  return {
+    title: { text: name, left: 10, top: 6, textStyle: { fontSize: 14, color: '#6b655c', fontWeight: 600 } },
+    tooltip: { trigger: 'axis' },
+    grid: { left: 56, right: 24, top: 48, bottom: 30 },
+    xAxis: { type: 'category', data: months, boundaryGap: false },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: [
+      {
+        name,
+        type: 'line',
+        smooth: true,
+        data,
+        itemStyle: { color },
+        lineStyle: { width: 3, color },
+        areaStyle: { opacity: 0.12, color },
+      },
+    ],
+    unit,
+  }
+}
+
+function renderCharts(d) {
+  disposeCharts()
+  const mk = (el, option, detailType) => {
+    if (!el) return
+    const c = echarts.init(el)
+    c.setOption(option)
+    // 点击数据点 → 明细下钻弹窗（折线图取月份，饼图取分类名）
+    if (detailType) {
+      c.on('click', (p) => {
+        if (detailType === 'category') openDetail('category', null, p.name)
+        else openDetail(detailType, p.name)
+      })
+    }
+    chartInstances.push(c)
+  }
+  const months = d.months || []
+  mk(revenueChart.value, lineOption('每月平台收益（元）', months, d.revenueTrend.map((i) => i.count), '#b4552d'), 'revenue')
+  mk(usersChart.value, lineOption('用户注册趋势', months, d.userTrend.map((i) => i.count), '#4a6fa5'), 'user')
+  mk(merchantsChart.value, lineOption('商家申请趋势', months, d.merchantTrend.map((i) => i.count), '#3d7a5a'), 'merchant')
+  mk(productsChart.value, lineOption('每月商品发布', months, d.productTrend.map((i) => i.count), '#8a6db1'), 'product')
+  mk(
+    pieChart.value,
+    {
+      title: { text: '在售商品分类占比', left: 10, top: 6, textStyle: { fontSize: 14, color: '#6b655c', fontWeight: 600 } },
+      tooltip: { trigger: 'item', formatter: '{b}: {c} 件（{d}%）' },
+      legend: { bottom: 0, type: 'scroll' },
+      series: [
+        {
+          type: 'pie',
+          radius: ['36%', '64%'],
+          center: ['50%', '46%'],
+          data: (d.categoryPie || []).map((i) => ({ name: i.name || '未分类', value: i.value })),
+          label: { formatter: '{b}\n{d}%' },
+        },
+      ],
+    },
+    'category',
+  )
+}
+
+// ---------- 图表明细下钻弹窗 ----------
+const MERCHANT_STATUS = { 0: '待审核', 1: '已通过', 2: '已拒绝' }
+const PRODUCT_STATUS = { 0: '已下架', 1: '已上架', 2: '审核中' }
+const ORDER_STATUS = { 1: '待发货', 2: '待收货', 3: '已完成' }
+
+const DETAIL_COLUMNS = {
+  user: [
+    { key: 'id', label: 'ID' },
+    { key: 'username', label: '用户名' },
+    { key: 'phone', label: '手机号' },
+    { key: 'createTime', label: '注册时间' },
+  ],
+  merchant: [
+    { key: 'shopName', label: '店铺名称' },
+    { key: 'username', label: '申请人' },
+    { key: 'contactPhone', label: '联系电话' },
+    { key: 'businessLicense', label: '执照号' },
+    { key: 'status', label: '状态', fmt: (v) => MERCHANT_STATUS[v] ?? v },
+    { key: 'createTime', label: '提交时间' },
+  ],
+  product: [
+    { key: 'name', label: '商品名称' },
+    { key: 'price', label: '价格', fmt: (v) => `¥${v}` },
+    { key: 'status', label: '状态', fmt: (v) => PRODUCT_STATUS[v] ?? v },
+    { key: 'createTime', label: '发布时间' },
+  ],
+  revenue: [
+    { key: 'orderNo', label: '订单号' },
+    { key: 'payAmount', label: '实付金额', fmt: (v) => `¥${v}` },
+    { key: 'status', label: '订单状态', fmt: (v) => ORDER_STATUS[v] ?? v },
+    { key: 'createTime', label: '下单时间' },
+  ],
+  category: [
+    { key: 'name', label: '商品名称' },
+    { key: 'price', label: '价格', fmt: (v) => `¥${v}` },
+    { key: 'stock', label: '库存' },
+    { key: 'createTime', label: '发布时间' },
+  ],
+}
+
+const detail = reactive({
+  visible: false,
+  loading: false,
+  type: 'user',
+  title: '',
+  rows: [],
+  truncated: false,
+})
+
+async function openDetail(type, month, name) {
+  detail.type = type
+  detail.columns = DETAIL_COLUMNS[type] || []
+  detail.rows = []
+  detail.title = '明细加载中…'
+  detail.visible = true
+  detail.loading = true
+  try {
+    const d = await fetchStatsDetail(type, month, name)
+    detail.title = d.title
+    detail.rows = d.rows || []
+    detail.truncated = !!d.truncated
+  } catch (e) {
+    detail.title = '明细加载失败'
+    detail.rows = []
+  } finally {
+    detail.loading = false
+  }
+}
+
+function closeDetail() {
+  detail.visible = false
+}
+
+async function loadStats() {
+  try {
+    const d = await fetchAdminStats()
+    totalUsers.value = d.totalUsers ?? 0
+    totalProducts.value = d.totalProducts ?? 0
+    totalMerchants.value = d.totalMerchants ?? 0
+    await nextTick()
+    renderCharts(d)
+  } catch {
+    // 统计接口失败不影响主页面
+  }
+}
+
 // ---------- 初始化 ----------
 onMounted(async () => {
   try {
@@ -198,19 +380,19 @@ onMounted(async () => {
   } catch (e) {
     errorMsg.value = e.message || '数据加载失败'
   }
+  loadStats()
+  window.addEventListener('resize', onWindowResize)
 })
 
-const stats = [
-  { label: '平台订单', value: totalOrders, en: 'Orders' },
-  { label: '注册用户', value: '—', en: 'Users' },
-  { label: '上架商品', value: '—', en: 'Products' },
-  { label: '入驻商家', value: '—', en: 'Merchants' },
-]
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize)
+  disposeCharts()
+})
 
 const menus = [
-  { icon: '👤', title: '用户管理', desc: '查询用户 · 启用禁用账号' },
-  { icon: '🏪', title: '商家审核', desc: '入驻申请 · 审核通过拒绝' },
-  { icon: '📦', title: '商品管理', desc: '商品浏览 · 全平台商品监管' },
+  { icon: '👤', title: '用户管理', desc: '查询用户 · 启用禁用账号', to: '/admin/users' },
+  { icon: '🏪', title: '商家审核', desc: '入驻申请 · 审核通过拒绝', to: '/admin/merchants' },
+  { icon: '📦', title: '商品管理', desc: '商品浏览 · 全平台商品监管', to: '/admin/products' },
   { icon: '🗂', title: '分类管理', desc: '商品分类维护 · 新增启停用', to: '/admin/categories' },
   { icon: '🏷', title: '品牌管理', desc: '品牌信息维护' },
 ]
@@ -222,6 +404,8 @@ function comingSoon() {
 function handleMenu(m) {
   if (m.to) {
     router.push(m.to)
+  } else if (m.anchor) {
+    document.getElementById(m.anchor)?.scrollIntoView({ behavior: 'smooth' })
   } else {
     comingSoon()
   }
@@ -251,17 +435,53 @@ function handleMenu(m) {
           <h2>数据概览</h2>
         </div>
         <div class="stat-grid">
-          <div v-for="s in stats" :key="s.label" class="stat-card card">
-            <p class="stat-value serif">{{ s.value.value ?? s.value }}</p>
+          <button
+            v-for="s in statItems"
+            :key="s.label"
+            class="stat-card card stat-clickable"
+            type="button"
+            @click="s.action"
+          >
+            <p class="stat-value serif">{{ s.value }}</p>
             <p class="stat-label">{{ s.label }}</p>
             <p class="stat-en latin">{{ s.en }}</p>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 数据看板图表 -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <p class="section-en latin">Dashboard</p>
+            <h2>数据看板</h2>
+          </div>
+          <span class="dash-hint">💡 点击图表中的数据点可查看该数据明细</span>
+        </div>
+        <div class="chart-grid">
+          <div class="chart-card card chart-wide">
+            <div ref="revenueChart" class="chart"></div>
+          </div>
+          <div class="chart-card card">
+            <div ref="usersChart" class="chart"></div>
+          </div>
+          <div class="chart-card card">
+            <div ref="merchantsChart" class="chart"></div>
+          </div>
+          <div class="chart-card card">
+            <div ref="productsChart" class="chart"></div>
+          </div>
+          <div class="chart-card card chart-wide">
+            <div ref="pieChart" class="chart chart-tall"></div>
           </div>
         </div>
       </div>
     </section>
 
     <!-- 支付记录 -->
-    <section class="section">
+    <section class="section" id="admin-orders">
       <div class="container">
         <div class="section-head">
           <div>
@@ -489,6 +709,39 @@ function handleMenu(m) {
     <transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
     </transition>
+
+    <!-- 图表明细下钻弹窗 -->
+    <teleport to="body">
+      <div v-if="detail.visible" class="detail-mask" @click.self="closeDetail">
+        <div class="detail-modal card">
+          <div class="detail-head">
+            <h3 class="serif">{{ detail.title }}</h3>
+            <button class="detail-close" type="button" @click="closeDetail">✕</button>
+          </div>
+
+          <div v-if="detail.loading" class="detail-state">加载中…</div>
+          <div v-else-if="detail.rows.length === 0" class="detail-state">该时间段暂无数据</div>
+
+          <div v-else class="detail-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th v-for="col in detail.columns" :key="col.key">{{ col.label }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in detail.rows" :key="idx">
+                  <td v-for="col in detail.columns" :key="col.key">
+                    {{ col.fmt ? col.fmt(row[col.key]) : (row[col.key] ?? '—') }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="detail.truncated" class="detail-truncated muted">数据较多，仅显示最近 50 条</p>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </HomeLayout>
 </template>
 
@@ -1047,6 +1300,96 @@ function handleMenu(m) {
   .order-body {
     grid-template-columns: 1fr;
     gap: 18px;
+  }
+}
+/* ---------------- 数据看板图表 ---------------- */
+.dash-hint {
+  font-size: 13px;
+  color: var(--ink-3, #8a8378);
+}
+.detail-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 25, 21, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.detail-modal {
+  width: min(860px, 96vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--line, #ece6da);
+}
+.detail-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.detail-close {
+  border: none;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--ink-3, #8a8378);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.detail-close:hover {
+  background: #f1ede4;
+}
+.detail-state {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--ink-3, #8a8378);
+}
+.detail-body {
+  overflow: auto;
+  padding: 8px 22px 18px;
+}
+.detail-truncated {
+  font-size: 12px;
+  margin: 10px 0 0;
+}
+.stat-clickable {
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.stat-clickable:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(60, 50, 30, 0.1);
+}
+.chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.chart-card {
+  padding: 8px;
+}
+.chart {
+  height: 280px;
+  width: 100%;
+}
+.chart-tall {
+  height: 320px;
+}
+@media (max-width: 860px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-wide {
+    grid-column: auto;
   }
 }
 </style>

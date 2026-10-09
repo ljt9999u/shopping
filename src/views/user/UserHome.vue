@@ -21,6 +21,7 @@ const entries = [
   { icon: '✦', title: '用户中心', desc: '个人资料 · 收货地址', to: '/user/center' },
   { icon: '❋', title: '浏览好物', desc: '文艺美物 · 匠心甄选', to: '/shop' },
   { icon: '❒', title: '我的订单', desc: '跟踪订单与物流', to: '/my-orders' },
+  { icon: '🏪', title: '商家申请', desc: '入驻认证 · 开启店铺', to: '/user/merchant-apply' },
 ]
 
 // 好物分类：来自后端启用的分类数据，与商家发布商品的分类一致

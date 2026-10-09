@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import { useAuthStore } from '@/stores/auth'
+import { validatePhone, validatePassword, passwordRules } from '@/utils/validators'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -38,19 +39,15 @@ function validate() {
     valid = false
   }
 
-  if (!form.phone) {
-    errors.phone = '请输入手机号'
-    valid = false
-  } else if (!/^1[3-9]\d{9}$/.test(form.phone)) {
-    errors.phone = '手机号格式不正确'
+  const phoneErr = validatePhone(form.phone)
+  if (phoneErr) {
+    errors.phone = phoneErr
     valid = false
   }
 
-  if (!form.password) {
-    errors.password = '请设置密码'
-    valid = false
-  } else if (form.password.length < 6) {
-    errors.password = '密码至少 6 位'
+  const pwdErr = validatePassword(form.password)
+  if (pwdErr) {
+    errors.password = pwdErr
     valid = false
   }
 
@@ -127,9 +124,14 @@ async function handleSubmit() {
           v-model="form.password"
           class="input"
           type="password"
-          placeholder="至少 6 位密码"
+          placeholder="8–20 位，含大小写字母、数字和特殊字符"
           autocomplete="new-password"
         />
+        <div v-if="form.password" class="pwd-rules">
+          <span v-for="r in passwordRules(form.password)" :key="r.text" class="pwd-rule" :class="{ ok: r.ok }">
+            {{ r.ok ? '✓' : '·' }} {{ r.text }}
+          </span>
+        </div>
         <span v-if="errors.password" class="field-message">{{ errors.password }}</span>
       </div>
 
@@ -200,4 +202,22 @@ async function handleSubmit() {
 .switch-link:hover::after {
   transform: scaleX(1);
 }
+
+.pwd-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.pwd-rule {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  transition: color 0.2s ease;
+}
+
+.pwd-rule.ok {
+  color: #2c6e49;
+}
+
 </style>

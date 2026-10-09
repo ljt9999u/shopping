@@ -36,3 +36,30 @@ export function pageMerchants(pageNum = 1, pageSize = 100) {
 export function updateMerchant(data) {
   return request.put('/merchant/update', data)
 }
+
+/**
+ * 商家入驻申请（用户提交认证信息，被拒后可重新提交）
+ * @param {object} data Merchant：{ userId, shopName, businessLicense, licenseImage, contactPhone, shopLogo? }
+ */
+export function applyMerchant(data) {
+  return request.post('/merchant/apply', data)
+}
+
+/**
+ * 按状态分页查询商家（管理端审核用）
+ * @param {number} status 0待审核 1已通过 2已拒绝
+ */
+export function pageMerchantsByStatus(status, pageNum = 1, pageSize = 20) {
+  return request.get('/merchant/pageByStatus', {
+    params: { status, pageNum, pageSize },
+  })
+}
+
+/**
+ * 审核商家（管理端：1通过并升级用户角色 2拒绝）
+ */
+export function auditMerchant(id, status) {
+  return request.put(`/merchant/audit/${id}`, null, {
+    params: { status },
+  })
+}

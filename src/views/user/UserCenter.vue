@@ -4,7 +4,8 @@ import { useRouter } from 'vue-router'
 import HomeLayout from '@/layouts/HomeLayout.vue'
 import ImageUploader from '@/components/ImageUploader.vue'
 import { useAuthStore } from '@/stores/auth'
-import { getUserById, updateProfile } from '@/api/user'
+import { getUserById, updateProfile, updatePassword } from '@/api/user'
+import { validatePassword, passwordRules } from '@/utils/validators'
 import {
   listAddresses,
   addAddress,
@@ -105,6 +106,42 @@ async function saveProfile() {
     showToast('保存失败，请稍后再试')
   } finally {
     savingProfile.value = false
+  }
+}
+
+/* ===================== 修改密码 ===================== */
+const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const changingPwd = ref(false)
+
+async function changePassword() {
+  if (!pwdForm.oldPassword) {
+    showToast('请输入原密码')
+    return
+  }
+  const pwdErr = validatePassword(pwdForm.newPassword)
+  if (pwdErr) {
+    showToast(pwdErr)
+    return
+  }
+  if (pwdForm.confirmPassword !== pwdForm.newPassword) {
+    showToast('两次输入的新密码不一致')
+    return
+  }
+  if (pwdForm.oldPassword === pwdForm.newPassword) {
+    showToast('新密码不能与原密码相同')
+    return
+  }
+  changingPwd.value = true
+  try {
+    await updatePassword(pwdForm.oldPassword, pwdForm.newPassword)
+    showToast('密码修改成功，下次登录请使用新密码')
+    pwdForm.oldPassword = ''
+    pwdForm.newPassword = ''
+    pwdForm.confirmPassword = ''
+  } catch (e) {
+    showToast(e?.message || '修改失败，请检查原密码是否正确')
+  } finally {
+    changingPwd.value = false
   }
 }
 
@@ -345,6 +382,56 @@ onMounted(async () => {
           </template>
         </section>
 
+        <!-- ============ 修改密码 ============ -->
+        <section class="card profile-card fade-up">
+          <div class="block-head">
+            <h2 class="serif">修改密码</h2>
+            <span class="latin">Security</span>
+          </div>
+
+          <label class="field">
+            <span class="field-label">原密码</span>
+            <input
+              v-model="pwdForm.oldPassword"
+              class="input"
+              type="password"
+              placeholder="请输入当前密码"
+              autocomplete="current-password"
+            />
+          </label>
+
+          <label class="field">
+            <span class="field-label">新密码</span>
+            <input
+              v-model="pwdForm.newPassword"
+              class="input"
+              type="password"
+              placeholder="8–20 位，含大小写字母、数字和特殊字符"
+              autocomplete="new-password"
+            />
+            <div v-if="pwdForm.newPassword" class="pwd-rules">
+              <span v-for="r in passwordRules(pwdForm.newPassword)" :key="r.text" class="pwd-rule" :class="{ ok: r.ok }">
+                {{ r.ok ? '✓' : '·' }} {{ r.text }}
+              </span>
+            </div>
+          </label>
+
+          <label class="field">
+            <span class="field-label">确认新密码</span>
+            <input
+              v-model="pwdForm.confirmPassword"
+              class="input"
+              type="password"
+              placeholder="请再次输入新密码"
+              autocomplete="new-password"
+            />
+          </label>
+
+          <button class="btn btn-primary btn-block" type="button" :disabled="changingPwd" @click="changePassword">
+            {{ changingPwd ? '提交中…' : '修改密码' }}
+          </button>
+        </section>
+
         <!-- ============ 收货地址 ============ -->
         <section class="card address-card fade-up">
           <div class="block-head">
@@ -475,6 +562,23 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.pwd-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.pwd-rule {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  transition: color 0.2s ease;
+}
+
+.pwd-rule.ok {
+  color: #2c6e49;
+}
+
 .center-page {
   padding-top: 36px;
   padding-bottom: 40px;
